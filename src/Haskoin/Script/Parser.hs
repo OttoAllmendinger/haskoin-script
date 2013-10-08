@@ -6,7 +6,6 @@ module Haskoin.Script.Parser
 , TxSignature(..)
 , scriptAddr
 , isCanonicalSig
-, isCanonicalEvenSig
 , encodeInput
 , decodeInput
 , encodeOutput
@@ -118,12 +117,6 @@ isCanonicalSig s = not $
           rlen = BS.index s 3
           slen = BS.index s (fromIntegral rlen + 5)
           hashtype = clearBit (BS.last s) 7
-
--- Stronger condition: Check that 's' component of sig is even
-isCanonicalEvenSig :: BS.ByteString -> Bool
-isCanonicalEvenSig s = isCanonicalSig s && (not $ testBit val 0)
-    -- Second before last byte (drop the sighash byte)
-    where val = BS.last $ BS.init s
 
 data ScriptOutput = 
       PayPK         { runPayPubKey      :: !PubKey }

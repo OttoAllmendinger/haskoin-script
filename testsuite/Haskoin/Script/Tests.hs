@@ -39,7 +39,8 @@ tests =
 {- Script Parser -}
 
 testCanonicalSig :: TxSignature -> Bool
-testCanonicalSig ts = isCanonicalSig bs && isCanonicalEvenSig bs
+testCanonicalSig ts = 
+    isCanonicalSig bs && isCanonicalHalfOrder (txSignature ts)
     where bs = encode' ts
 
 binSigHash :: SigHash -> Bool

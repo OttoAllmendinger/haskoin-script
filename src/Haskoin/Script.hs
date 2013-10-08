@@ -6,7 +6,6 @@ module Haskoin.Script
 , TxSignature(..)
 , scriptAddr
 , isCanonicalSig
-, isCanonicalEvenSig
 , encodeInput
 , decodeInput
 , encodeOutput
