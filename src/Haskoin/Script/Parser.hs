@@ -1,6 +1,7 @@
 module Haskoin.Script.Parser
 ( ScriptOutput(..)
 , ScriptInput(..)
+, RedeemScript
 , ScriptHashInput(..)
 , SigHash(..)
 , TxSignature(..)
@@ -234,9 +235,11 @@ matchSpendMulSig (Script ops) = liftM2 SpendMulSig (go ops) (Just $ length ops)
           go [] = Just []
           go _  = Nothing
 
+type RedeemScript = ScriptOutput
+
 data ScriptHashInput = ScriptHashInput 
     { spendSHInput  :: ScriptInput 
-    , spendSHOutput :: ScriptOutput
+    , spendSHOutput :: RedeemScript
     } deriving (Eq, Show)
 
 encodeScriptHash :: ScriptHashInput -> Maybe Script
