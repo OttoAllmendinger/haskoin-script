@@ -4,6 +4,7 @@ module Haskoin.Script
 , ScriptHashInput(..)
 , SigHash(..)
 , TxSignature(..)
+, RedeemScript
 , scriptAddr
 , isCanonicalSig
 , encodeInput
