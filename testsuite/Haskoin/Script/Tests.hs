@@ -59,15 +59,15 @@ binTxSigCanonical :: TxSignature -> Bool
 binTxSigCanonical ts = (fromRight $ decodeCanonicalSig $ encode' ts) == ts
 
 testScriptOpInt :: ScriptOpInt -> Bool
-testScriptOpInt (ScriptOpInt i) = (scriptOpToInt i >>= intToScriptOp) == Just i
+testScriptOpInt (ScriptOpInt i) = (intToScriptOp <$> scriptOpToInt i) == Right i
 
 testScriptOutput :: ScriptOutput -> Bool
-testScriptOutput so = (encodeOutput so >>= decodeOutput) == Just so
+testScriptOutput so = (decodeOutput $ encodeOutput so) == Right so
 
 testScriptInput :: ScriptInput -> Bool
-testScriptInput si = (encodeInput si >>= decodeInput) == Just si
+testScriptInput si = (decodeInput $ encodeInput si) == Right si
 
 testScriptHashInput :: ScriptHashInput -> Bool
-testScriptHashInput sh = (encodeScriptHash sh >>= decodeScriptHash) == Just sh
+testScriptHashInput sh = (decodeScriptHash $ encodeScriptHash sh) == Right sh
 
 

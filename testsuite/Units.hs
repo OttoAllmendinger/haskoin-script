@@ -67,10 +67,10 @@ notCanonicalVectors =
 testCanonicalSig :: String -> Assertion
 testCanonicalSig str = assertBool "Canonical Sig" $ 
     isRight $ decodeCanonicalSig bs
-    where bs = fromJust $ hexToBS $ stringToBS str
+    where bs = fromJust $ hexToBS  str
 
 testNotCanonicalSig :: String -> Assertion
 testNotCanonicalSig str = assertBool "Not canonical sig" $
     isLeft $ decodeCanonicalSig bs
-    where bs = fromJust $ hexToBS $ stringToBS str
+    where bs = fromJust $ hexToBS str
 
