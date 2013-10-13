@@ -1,22 +1,29 @@
 module Haskoin.Script
+
+-- Parser module
 ( ScriptOutput(..)
 , ScriptInput(..)
 , ScriptHashInput(..)
-, SigHash(..)
-, TxSignature(..)
 , RedeemScript
 , scriptAddr
-, isCanonicalSig
 , encodeInput
 , decodeInput
 , encodeOutput
 , decodeOutput
 , encodeScriptHash
 , decodeScriptHash
-, encodeSigHash32
 , intToScriptOp
 , scriptOpToInt
+
+-- SigHash module
+, SigHash(..)
+, encodeSigHash32
+, txSigHash
+, TxSignature(..)
+, decodeCanonicalSig
+
 ) where
 
 import Haskoin.Script.Parser
+import Haskoin.Script.SigHash
 

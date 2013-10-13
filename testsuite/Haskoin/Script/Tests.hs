@@ -28,7 +28,8 @@ tests =
         [ testProperty "canonical signatures" testCanonicalSig
         , testProperty "decode( encode(sighash) ) = sighash" binSigHash
         , testProperty "encodeSigHash32 is 4 bytes long" testEncodeSH32
-        , testProperty "decode( encode(tsig) ) = tsig" binTxSig
+        , testProperty "decode( encode(s) ) = s" binTxSig
+        , testProperty "decodeCanonical( encode(s) ) = s" binTxSigCanonical
         , testProperty "encode decode OP_1 .. OP_16" testScriptOpInt
         , testProperty "encode decode ScriptOutput" testScriptOutput
         , testProperty "encode decode ScriptInput" testScriptInput
@@ -40,7 +41,7 @@ tests =
 
 testCanonicalSig :: TxSignature -> Bool
 testCanonicalSig ts = 
-    isCanonicalSig bs && isCanonicalHalfOrder (txSignature ts)
+    isRight (decodeCanonicalSig bs) && isCanonicalHalfOrder (txSignature ts)
     where bs = encode' ts
 
 binSigHash :: SigHash -> Bool
@@ -53,6 +54,9 @@ testEncodeSH32 sh = BS.length bs == 4 && BS.head bs /= 0 && BS.tail bs == zs
 
 binTxSig :: TxSignature -> Bool
 binTxSig ts = (decode' $ encode' ts) == ts
+
+binTxSigCanonical :: TxSignature -> Bool
+binTxSigCanonical ts = (fromRight $ decodeCanonicalSig $ encode' ts) == ts
 
 testScriptOpInt :: ScriptOpInt -> Bool
 testScriptOpInt (ScriptOpInt i) = (scriptOpToInt i >>= intToScriptOp) == Just i

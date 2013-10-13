@@ -3,17 +3,13 @@ module Haskoin.Script.Parser
 , ScriptInput(..)
 , RedeemScript
 , ScriptHashInput(..)
-, SigHash(..)
-, TxSignature(..)
 , scriptAddr
-, isCanonicalSig
 , encodeInput
 , decodeInput
 , encodeOutput
 , decodeOutput
 , encodeScriptHash
 , decodeScriptHash
-, encodeSigHash32
 , intToScriptOp
 , scriptOpToInt
 ) where
@@ -27,97 +23,10 @@ import Data.Binary.Get
 import Data.Binary.Put
 import qualified Data.ByteString as BS
 
+import Haskoin.Script.SigHash
 import Haskoin.Crypto
 import Haskoin.Protocol
 import Haskoin.Util
-
-data SigHash = SigAll    
-             | SigNone   
-             | SigSingle 
-
-             -- Anyone Can Pay
-             | SigAllAcp
-             | SigNoneAcp
-             | SigSingleAcp 
-             deriving (Eq, Show)
-
-instance Binary SigHash where
-
-    get = do
-        w <- getWord8
-        case w of 0x01 -> return SigAll
-                  0x02 -> return SigNone
-                  0x03 -> return SigSingle
-                  0x81 -> return SigAllAcp
-                  0x82 -> return SigNoneAcp
-                  0x83 -> return SigSingleAcp
-                  _    -> fail "Non-canonical signature: unknown hashtype byte"
-
-    put sh = putWord8 $ case sh of
-        SigAll       -> 0x01
-        SigNone      -> 0x02
-        SigSingle    -> 0x03
-        SigAllAcp    -> 0x81
-        SigNoneAcp   -> 0x82
-        SigSingleAcp -> 0x83
-
-encodeSigHash32 :: SigHash -> BS.ByteString
-encodeSigHash32 sh = encode' sh `BS.append` BS.pack [0,0,0]
-
--- Signatures in scripts contain the signature hash type byte
-data TxSignature = TxSignature 
-    { txSignature :: Signature 
-    , sigHashType :: SigHash
-    } deriving (Eq, Show)
-
-instance Binary TxSignature where
-    get = liftM2 TxSignature get get
-    put (TxSignature s h) = put s >> put h
-
--- github.com/bitcoin/bitcoin/blob/master/src/script.cpp
--- from function IsCanonicalSignature
-isCanonicalSig :: BS.ByteString -> Bool
-isCanonicalSig s = not $
-    -- Non-canonical signature: too short
-    (len < 9) ||
-    -- Non-canonical signature: too long
-    (len > 73) ||
-    -- Non-canonical signature: unknown hashtype byte
-    (hashtype < 1 || hashtype > 3) ||
-    -- Non-canonical signature: wrong type
-    (BS.index s 0 /= 0x30) ||
-    -- Non-canonical signature: wrong length marker
-    (BS.index s 1 /= len - 3) ||
-    -- Non-canonical signature: S length misplaced
-    (5 + rlen >= len) || 
-    -- Non-canonical signature: R+S length mismatch
-    (rlen + slen + 7 /= len) ||
-    -- Non-canonical signature: R value type mismatch
-    (BS.index s 2 /= 0x02) ||
-    -- Non-canonical signature: R length is zero
-    (rlen == 0) ||
-    -- Non-canonical signature: R value negative
-    (testBit (BS.index s 4) 7) ||
-    -- Non-canonical signature: R value excessively padded
-    (  rlen > 1 
-    && BS.index s 4 == 0 
-    && not (testBit (BS.index s 5) 7)
-    ) ||
-    -- Non-canonical signature: S value type mismatch
-    (BS.index s (fromIntegral rlen+4) /= 0x02) ||
-    -- Non-canonical signature: S length is zero
-    (slen == 0) ||
-    -- Non-canonical signature: S value negative
-    (testBit (BS.index s (fromIntegral rlen+6)) 7) ||
-    -- Non-canonical signature: S value excessively padded
-    (  slen > 1
-    && BS.index s (fromIntegral rlen+6) == 0 
-    && not (testBit (BS.index s (fromIntegral rlen+7)) 7)
-    ) 
-    where len = fromIntegral $ BS.length s
-          rlen = BS.index s 3
-          slen = BS.index s (fromIntegral rlen + 5)
-          hashtype = clearBit (BS.last s) 7
 
 data ScriptOutput = 
       PayPK         { runPayPubKey      :: !PubKey }

@@ -17,8 +17,9 @@ cabal-version:         >= 1.9.2
 library
     exposed-modules:   Haskoin.Script,
                        Haskoin.Script.Arbitrary
-    other-modules:     Haskoin.Script.Parser, 
-                       Haskoin.Script.Evaluator 
+    other-modules:     Haskoin.Script.Evaluator,
+                       Haskoin.Script.Parser, 
+                       Haskoin.Script.SigHash
     build-depends:     base == 4.6.*, 
                        binary == 0.7.*, 
                        bytestring == 0.10.*, 
