@@ -4,6 +4,7 @@ import Test.HUnit
 import Test.Framework
 import Test.Framework.Providers.HUnit
 
+import Control.Monad
 import Control.Monad.Trans
 
 import Data.Maybe
@@ -31,6 +32,18 @@ notCanonicalVectorsMap :: (String,Int) -> Test.Framework.Test
 notCanonicalVectorsMap (s,i) = testCase ("Not canonical Sig " ++ (show i)) func
     where func = testNotCanonicalSig $ notCanonicalVectors !! i
 
+testCanonicalSig :: String -> Assertion
+testCanonicalSig str = do
+    let res = decodeCanonicalSig bs
+    when (isLeft res) $ liftIO $ print res
+    assertBool "    > Canonical Sig" $ isRight res
+    where bs = fromJust $ hexToBS str
+
+testNotCanonicalSig :: String -> Assertion
+testNotCanonicalSig str = assertBool "    > Not canonical sig" $
+    isLeft $ decodeCanonicalSig bs
+    where bs = fromJust $ hexToBS str
+
 {- Canonical Signatures -}
 
 -- Test vectors from bitcoind
@@ -38,7 +51,7 @@ notCanonicalVectorsMap (s,i) = testCase ("Not canonical Sig " ++ (show i)) func
 
 canonicalVectors :: [String]
 canonicalVectors =
-    [ "300602010002010001"
+    [ "300602010102010101" -- Changed 0x00 to 0x01 as 0x00 is invalid
     , "3008020200ff020200ff01"
     , "304402203932c892e2e550f3af8ee4ce9c215a87f9bb831dcac87b2838e2c2eaa891df0c022030b61dd36543125d56b9f9f3a1f9353189e5af33cdda8d77a5209aec03978fa001"
     , "30450220076045be6f9eca28ff1ec606b833d0b87e70b2a630f5e3a496b110967a40f90a0221008fffd599910eefe00bc803c688c2eca1d2ba7f6b180620eaa03488e6585db6ba01"
@@ -63,14 +76,4 @@ notCanonicalVectors =
     , "304402205990e0584b2b238e1dfaad8d6ed69ecc1a4a13ac85fc0b31d0df395eb1ba61050220fd5876262c288beb511d061691bf26777344b702b00f8fe28621fe4e566695ed01"
     , "304502205990e0584b2b238e1dfaad8d6ed69ecc1a4a13ac85fc0b31d0df395eb1ba61050221002d5876262c288beb511d061691bf26777344b702b00f8fe28621fe4e566695ed01"
     ]
-
-testCanonicalSig :: String -> Assertion
-testCanonicalSig str = assertBool "Canonical Sig" $ 
-    isRight $ decodeCanonicalSig bs
-    where bs = fromJust $ hexToBS  str
-
-testNotCanonicalSig :: String -> Assertion
-testNotCanonicalSig str = assertBool "Not canonical sig" $
-    isLeft $ decodeCanonicalSig bs
-    where bs = fromJust $ hexToBS str
 

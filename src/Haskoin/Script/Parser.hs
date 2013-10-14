@@ -119,28 +119,28 @@ data ScriptInput =
 
 encodeInput :: ScriptInput -> Script
 encodeInput s = Script $ case s of
-    SpendPK s        -> [ OP_PUSHDATA $ encode' s ]
-    SpendPKHash ts p -> [ OP_PUSHDATA $ encode' ts
-                        , OP_PUSHDATA $ encode' p
-                        ]
+    SpendPK ts        -> [ OP_PUSHDATA $ encodeSig ts ]
+    SpendPKHash ts p  -> [ OP_PUSHDATA $ encodeSig ts
+                         , OP_PUSHDATA $ encode' p
+                         ]
     SpendMulSig ts r 
         | length ts <= 16 && r >= 1 && r <= 16 ->
-            let sigs = map (OP_PUSHDATA . encode') ts
+            let sigs = map (OP_PUSHDATA . encodeSig) ts
                 in OP_0 : sigs ++ replicate (r - length ts) OP_0
         | otherwise -> error "SpendMulSig: Bad multisig parameters"
 
 decodeInput :: Script -> Either String ScriptInput
 decodeInput s = case runScript s of
-    [OP_PUSHDATA bs] -> SpendPK <$> decodeToEither bs 
-    [OP_PUSHDATA a, OP_PUSHDATA b] -> 
-        liftM2 SpendPKHash (decodeToEither a) (decodeToEither b)
+    [OP_PUSHDATA bs] -> SpendPK <$> decodeSig bs 
+    [OP_PUSHDATA s, OP_PUSHDATA p] -> 
+        liftM2 SpendPKHash (decodeSig s) (decodeToEither p)
     (OP_0 : xs) -> matchSpendMulSig $ Script xs
     _ -> Left "decodeInput: Script did not match input templates"
 
 matchSpendMulSig :: Script -> Either String ScriptInput
 matchSpendMulSig (Script ops) = 
     liftM2 SpendMulSig (go ops) (return $ length ops)
-    where go (OP_PUSHDATA bs:xs) = liftM2 (:) (decodeToEither bs) (go xs)
+    where go (OP_PUSHDATA bs:xs) = liftM2 (:) (decodeSig bs) (go xs)
           go (OP_0:xs)
             | all (== OP_0) xs = return []
             | otherwise = Left "matchSpendMulSig: invalid opcode after OP_0"

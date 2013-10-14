@@ -26,14 +26,15 @@ tests :: [Test]
 tests = 
     [ testGroup "Script Parser"
         [ testProperty "canonical signatures" testCanonicalSig
-        , testProperty "decode( encode(sighash) ) = sighash" binSigHash
+        , testProperty "decode . encode SigHash" binSigHash
+        , testProperty "decode SigHash defaults to SigAll" binSigHashByte
         , testProperty "encodeSigHash32 is 4 bytes long" testEncodeSH32
-        , testProperty "decode( encode(s) ) = s" binTxSig
-        , testProperty "decodeCanonical( encode(s) ) = s" binTxSigCanonical
-        , testProperty "encode decode OP_1 .. OP_16" testScriptOpInt
-        , testProperty "encode decode ScriptOutput" testScriptOutput
-        , testProperty "encode decode ScriptInput" testScriptInput
-        , testProperty "encode decode ScriptHashInput" testScriptHashInput
+        , testProperty "decode . encode TxSignature" binTxSig
+        , testProperty "decodeCanonical . encode TxSignature" binTxSigCanonical
+        , testProperty "decode . encode OP_1 .. OP_16" testScriptOpInt
+        , testProperty "decode . encode ScriptOutput" testScriptOutput
+        , testProperty "decode . encode ScriptInput" testScriptInput
+        , testProperty "decode . encode ScriptHashInput" testScriptHashInput
         ]
     ]
 
@@ -42,10 +43,22 @@ tests =
 testCanonicalSig :: TxSignature -> Bool
 testCanonicalSig ts = 
     isRight (decodeCanonicalSig bs) && isCanonicalHalfOrder (txSignature ts)
-    where bs = encode' ts
+    where bs = encodeSig ts
 
 binSigHash :: SigHash -> Bool
 binSigHash sh = (decode' $ encode' sh) == sh
+
+binSigHashByte :: Word8 -> Bool
+binSigHashByte w
+    | w == 0x01 = res == SigAll
+    | w == 0x02 = res == SigNone
+    | w == 0x03 = res == SigSingle
+    | w == 0x81 = res == SigAllAcp
+    | w == 0x82 = res == SigNoneAcp
+    | w == 0x83 = res == SigSingleAcp
+    | testBit w 7 = res == SigAllAcp
+    | otherwise = res == SigAll
+    where res = decode' $ BS.singleton w
 
 testEncodeSH32 :: SigHash -> Bool
 testEncodeSH32 sh = BS.length bs == 4 && BS.head bs /= 0 && BS.tail bs == zs
@@ -53,10 +66,10 @@ testEncodeSH32 sh = BS.length bs == 4 && BS.head bs /= 0 && BS.tail bs == zs
           zs = BS.pack [0,0,0]
 
 binTxSig :: TxSignature -> Bool
-binTxSig ts = (decode' $ encode' ts) == ts
+binTxSig ts = (fromRight $ decodeSig $ encodeSig ts) == ts
 
 binTxSigCanonical :: TxSignature -> Bool
-binTxSigCanonical ts = (fromRight $ decodeCanonicalSig $ encode' ts) == ts
+binTxSigCanonical ts = (fromRight $ decodeCanonicalSig $ encodeSig ts) == ts
 
 testScriptOpInt :: ScriptOpInt -> Bool
 testScriptOpInt (ScriptOpInt i) = (intToScriptOp <$> scriptOpToInt i) == Right i

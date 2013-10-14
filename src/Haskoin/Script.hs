@@ -20,6 +20,8 @@ module Haskoin.Script
 , encodeSigHash32
 , txSigHash
 , TxSignature(..)
+, encodeSig
+, decodeSig
 , decodeCanonicalSig
 
 ) where

@@ -3,6 +3,8 @@ module Haskoin.Script.SigHash
 , encodeSigHash32
 , txSigHash
 , TxSignature(..)
+, encodeSig
+, decodeSig
 , decodeCanonicalSig
 ) where
 
@@ -32,13 +34,16 @@ instance Binary SigHash where
 
     get = do
         w <- getWord8
-        case w of 0x01 -> return SigAll
-                  0x02 -> return SigNone
-                  0x03 -> return SigSingle
-                  0x81 -> return SigAllAcp
-                  0x82 -> return SigNoneAcp
-                  0x83 -> return SigSingleAcp
-                  _    -> fail "Non-canonical signature: unknown hashtype byte"
+        let f = w .&. 0x7f
+        return $ if testBit w 7 
+            then case f of
+                2 -> SigNoneAcp
+                3 -> SigSingleAcp
+                _ -> SigAllAcp
+            else case f of
+                2 -> SigNone
+                3 -> SigSingle
+                _ -> SigAll
 
     put sh = putWord8 $ case sh of
         SigAll       -> 0x01
@@ -88,9 +93,13 @@ data TxSignature = TxSignature
     , sigHashType :: SigHash
     } deriving (Eq, Show)
 
-instance Binary TxSignature where
-    get = liftM2 TxSignature get get
-    put (TxSignature s h) = put s >> put h
+encodeSig :: TxSignature -> BS.ByteString
+encodeSig (TxSignature sig sh) = runPut' $ put sig >> put sh
+
+decodeSig :: BS.ByteString -> Either String TxSignature
+decodeSig bs = do
+    let (h,l) = BS.splitAt (BS.length bs - 1) bs
+    liftM2 TxSignature (decodeToEither h) (decodeToEither l)
 
 -- github.com/bitcoin/bitcoin/blob/master/src/script.cpp
 -- from function IsCanonicalSignature
@@ -121,7 +130,7 @@ decodeCanonicalSig bs
     | slen > 1 && BS.index bs (fromIntegral rlen+6) == 0 
         && not (testBit (BS.index bs (fromIntegral rlen+7)) 7) =
         Left "Non-canonical signature: S value excessively padded"
-    | otherwise = return $ decode' bs
+    | otherwise = decodeSig bs
     where len = fromIntegral $ BS.length bs
           rlen = BS.index bs 3
           slen = BS.index bs (fromIntegral rlen + 5)
