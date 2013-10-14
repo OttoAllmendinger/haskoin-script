@@ -33,10 +33,8 @@ notCanonicalVectorsMap (s,i) = testCase ("Not canonical Sig " ++ (show i)) func
     where func = testNotCanonicalSig $ notCanonicalVectors !! i
 
 testCanonicalSig :: String -> Assertion
-testCanonicalSig str = do
-    let res = decodeCanonicalSig bs
-    when (isLeft res) $ liftIO $ print res
-    assertBool "    > Canonical Sig" $ isRight res
+testCanonicalSig str = assertBool "    > Canonical Sig" $
+    isRight $ decodeCanonicalSig bs
     where bs = fromJust $ hexToBS str
 
 testNotCanonicalSig :: String -> Assertion
