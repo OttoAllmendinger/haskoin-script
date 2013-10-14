@@ -7,6 +7,7 @@ import Haskoin.Protocol.Arbitrary
 import Control.Monad
 import Control.Applicative
 
+import Data.Bits
 import Data.Word
 import Data.Maybe
 import qualified Data.ByteString as BS
@@ -19,13 +20,14 @@ instance Arbitrary TxSignature where
     arbitrary = liftM2 TxSignature arbitrary arbitrary
 
 instance Arbitrary SigHash where
-    arbitrary = elements [ SigAll
-                         , SigNone
-                         , SigSingle
-                         , SigAllAcp
-                         , SigNoneAcp
-                         , SigSingleAcp
-                         ]
+    arbitrary = do
+        w <- arbitrary :: Gen Word8
+        let acp = testBit w 7
+        return $ case clearBit w 7 of
+            1 -> SigAll acp
+            2 -> SigNone acp
+            3 -> SigSingle acp
+            _ -> SigUnknown acp w
 
 instance Arbitrary ScriptOutput where
     arbitrary = oneof 

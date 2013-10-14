@@ -1,6 +1,10 @@
 module Haskoin.Script.SigHash
 ( SigHash(..)
 , encodeSigHash32
+, isSigAll
+, isSigNone
+, isSigSingle
+, isSigUnknown
 , txSigHash
 , TxSignature(..)
 , encodeSig
@@ -21,37 +25,49 @@ import Haskoin.Crypto
 import Haskoin.Protocol
 import Haskoin.Util
 
-data SigHash = SigAll    
-             | SigNone   
-             | SigSingle 
-             -- Anyone Can Pay
-             | SigAllAcp
-             | SigNoneAcp
-             | SigSingleAcp 
+data SigHash = SigAll     { anyoneCanPay :: Bool }   
+             | SigNone    { anyoneCanPay :: Bool }     
+             | SigSingle  { anyoneCanPay :: Bool }   
+             | SigUnknown { anyoneCanPay :: Bool
+                          , runSigUnknown :: Word8 
+                          }
              deriving (Eq, Show)
+
+isSigAll :: SigHash -> Bool
+isSigAll sh = case sh of
+    SigAll _ -> True
+    _ -> False
+
+isSigNone :: SigHash -> Bool
+isSigNone sh = case sh of
+    SigNone _ -> True
+    _ -> False
+
+isSigSingle :: SigHash -> Bool
+isSigSingle sh = case sh of
+    SigSingle _ -> True
+    _ -> False
+
+isSigUnknown :: SigHash -> Bool
+isSigUnknown sh = case sh of
+    SigUnknown _ _ -> True
+    _ -> False
 
 instance Binary SigHash where
 
-    get = do
-        w <- getWord8
-        let f = w .&. 0x7f
-        return $ if testBit w 7 
-            then case f of
-                2 -> SigNoneAcp
-                3 -> SigSingleAcp
-                _ -> SigAllAcp
-            else case f of
-                2 -> SigNone
-                3 -> SigSingle
-                _ -> SigAll
+    get = getWord8 >>= \w ->
+        let acp = testBit w 7
+            in return $ case clearBit w 7 of
+                1 -> SigAll acp
+                2 -> SigNone acp
+                3 -> SigSingle acp
+                _ -> SigUnknown acp w
 
     put sh = putWord8 $ case sh of
-        SigAll       -> 0x01
-        SigNone      -> 0x02
-        SigSingle    -> 0x03
-        SigAllAcp    -> 0x81
-        SigNoneAcp   -> 0x82
-        SigSingleAcp -> 0x83
+        SigAll acp -> if acp then 0x81 else 0x01
+        SigNone acp -> if acp then 0x82 else 0x02
+        SigSingle acp -> if acp then 0x83 else 0x03
+        SigUnknown _ w -> w
 
 encodeSigHash32 :: SigHash -> BS.ByteString
 encodeSigHash32 sh = encode' sh `BS.append` BS.pack [0,0,0]
@@ -68,10 +84,9 @@ txSigHash tx out i sh = do
 buildInputs :: [TxIn] -> Script -> Int -> SigHash -> Either String [TxIn]
 buildInputs txins out i sh
     | i >= length txins = Left $ "buildInputs: index out of range " ++ (show i)
-    | sh `elem` [SigAllAcp, SigNoneAcp, SigSingleAcp] =
-            return $ (txins !! i) { scriptInput = out } : []
-    | sh == SigAll = return single
-    | sh `elem` [SigNone, SigSingle] = return $ map noSeq $ zip single [0..]
+    | anyoneCanPay sh   = return $ (txins !! i) { scriptInput = out } : []
+    | isSigAll sh || isSigUnknown sh = return single
+    | otherwise         = return $ map noSeq $ zip single [0..]
     where empty  = map (\ti -> ti{ scriptInput = Script [] }) txins
           single = updateIndex i empty $ \ti -> ti{ scriptInput = out }
           noSeq (ti,j) = if i == j then ti else ti{ txInSequence = 0 }
@@ -79,12 +94,11 @@ buildInputs txins out i sh
 -- Build transaction outputs for computing SigHashes
 buildOutputs :: [TxOut] -> Int -> SigHash -> Either String [TxOut]
 buildOutputs txos i sh
-    | sh `elem` [SigAll, SigAllAcp]       = return txos
-    | sh `elem` [SigNone, SigNoneAcp]     = return []
-    | sh `elem` [SigSingle, SigSingleAcp] = 
-        if i < 0 || i >= length txos
-            then Left $ "buildOutputs: index out of range: " ++ (show i)
-            else return $ buffer ++ [txos !! i]
+    | isSigAll sh || isSigUnknown sh = return txos
+    | isSigNone sh = return []
+    | i < 0 || i >= length txos = Left $ 
+        "buildOutputs: index out of range: " ++ (show i)
+    | otherwise = return $ buffer ++ [txos !! i]
     where buffer = replicate i $ TxOut (-1) $ Script []
 
 -- Signatures in scripts contain the signature hash type byte

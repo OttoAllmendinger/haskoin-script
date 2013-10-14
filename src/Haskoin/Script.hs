@@ -18,6 +18,10 @@ module Haskoin.Script
 -- SigHash module
 , SigHash(..)
 , encodeSigHash32
+, isSigAll
+, isSigNone
+, isSigSingle
+, isSigUnknown
 , txSigHash
 , TxSignature(..)
 , encodeSig

@@ -41,8 +41,10 @@ tests =
 {- Script Parser -}
 
 testCanonicalSig :: TxSignature -> Bool
-testCanonicalSig ts = 
-    isRight (decodeCanonicalSig bs) && isCanonicalHalfOrder (txSignature ts)
+testCanonicalSig ts@(TxSignature sig sh) 
+    | isSigUnknown sh = isLeft $ decodeCanonicalSig bs
+    | otherwise       = isRight (decodeCanonicalSig bs) && 
+                        isCanonicalHalfOrder (txSignature ts)
     where bs = encodeSig ts
 
 binSigHash :: SigHash -> Bool
@@ -50,26 +52,29 @@ binSigHash sh = (decode' $ encode' sh) == sh
 
 binSigHashByte :: Word8 -> Bool
 binSigHashByte w
-    | w == 0x01 = res == SigAll
-    | w == 0x02 = res == SigNone
-    | w == 0x03 = res == SigSingle
-    | w == 0x81 = res == SigAllAcp
-    | w == 0x82 = res == SigNoneAcp
-    | w == 0x83 = res == SigSingleAcp
-    | testBit w 7 = res == SigAllAcp
-    | otherwise = res == SigAll
+    | w == 0x01 = res == SigAll False
+    | w == 0x02 = res == SigNone False
+    | w == 0x03 = res == SigSingle False
+    | w == 0x81 = res == SigAll True
+    | w == 0x82 = res == SigNone True
+    | w == 0x83 = res == SigSingle True
+    | testBit w 7 = res == SigUnknown True w
+    | otherwise = res == SigUnknown False w
     where res = decode' $ BS.singleton w
 
 testEncodeSH32 :: SigHash -> Bool
-testEncodeSH32 sh = BS.length bs == 4 && BS.head bs /= 0 && BS.tail bs == zs
+testEncodeSH32 sh = BS.length bs == 4 && BS.head bs == w && BS.tail bs == zs
     where bs = encodeSigHash32 sh
+          w  = BS.head $ encode' sh
           zs = BS.pack [0,0,0]
 
 binTxSig :: TxSignature -> Bool
 binTxSig ts = (fromRight $ decodeSig $ encodeSig ts) == ts
 
 binTxSigCanonical :: TxSignature -> Bool
-binTxSigCanonical ts = (fromRight $ decodeCanonicalSig $ encodeSig ts) == ts
+binTxSigCanonical ts@(TxSignature sig sh) 
+    | isSigUnknown sh = isLeft $ decodeCanonicalSig $ encodeSig ts
+    | otherwise = (fromRight $ decodeCanonicalSig $ encodeSig ts) == ts
 
 testScriptOpInt :: ScriptOpInt -> Bool
 testScriptOpInt (ScriptOpInt i) = (intToScriptOp <$> scriptOpToInt i) == Right i
