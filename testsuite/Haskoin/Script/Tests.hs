@@ -25,16 +25,19 @@ import Haskoin.Util
 tests :: [Test]
 tests = 
     [ testGroup "Script Parser"
-        [ testProperty "canonical signatures" testCanonicalSig
-        , testProperty "decode . encode SigHash" binSigHash
-        , testProperty "decode SigHash defaults to SigAll" binSigHashByte
-        , testProperty "encodeSigHash32 is 4 bytes long" testEncodeSH32
-        , testProperty "decode . encode TxSignature" binTxSig
-        , testProperty "decodeCanonical . encode TxSignature" binTxSigCanonical
-        , testProperty "decode . encode OP_1 .. OP_16" testScriptOpInt
+        [ testProperty "decode . encode OP_1 .. OP_16" testScriptOpInt
         , testProperty "decode . encode ScriptOutput" testScriptOutput
         , testProperty "decode . encode ScriptInput" testScriptInput
         , testProperty "decode . encode ScriptHashInput" testScriptHashInput
+        ]
+    , testGroup "Script SigHash"
+        [ testProperty "canonical signatures" testCanonicalSig
+        , testProperty "decode . encode SigHash" binSigHash
+        , testProperty "decode SigHash from Word8" binSigHashByte
+        , testProperty "encodeSigHash32 is 4 bytes long" testEncodeSH32
+        , testProperty "decode . encode TxSignature" binTxSig
+        , testProperty "decodeCanonical . encode TxSignature" binTxSigCanonical
+        , testProperty "Testing txSigHash with SigSingle" testSigHashOne
         ]
     ]
 
@@ -87,5 +90,13 @@ testScriptInput si = (decodeInput $ encodeInput si) == Right si
 
 testScriptHashInput :: ScriptHashInput -> Bool
 testScriptHashInput sh = (decodeScriptHash $ encodeScriptHash sh) == Right sh
+
+testSigHashOne :: Tx -> Script -> Bool -> Property
+testSigHashOne tx s acp = not (null $ txIn tx) ==> 
+    if length (txIn tx) > length (txOut tx) 
+        then res == (setBit 0 248)
+        else res /= (setBit 0 248)
+    where res = txSigHash tx s (length (txIn tx) - 1) (SigSingle acp)
+
 
 

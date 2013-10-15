@@ -16,6 +16,7 @@ import Control.Monad
 import Control.Applicative
 
 import Data.Bits
+import Data.Maybe
 import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
@@ -73,31 +74,31 @@ encodeSigHash32 :: SigHash -> BS.ByteString
 encodeSigHash32 sh = encode' sh `BS.append` BS.pack [0,0,0]
 
 -- Build hash that will be used for signing a transaction
-txSigHash :: Tx -> Script -> Int -> SigHash -> Either String Hash256
+txSigHash :: Tx -> Script -> Int -> SigHash -> Hash256
 txSigHash tx out i sh = do
-    newIn  <- buildInputs (txIn tx) out i sh
-    newOut <- buildOutputs (txOut tx) i sh
-    let newTx = tx{ txIn = newIn, txOut = newOut }
-    return $ doubleHash256 $ encode' newTx `BS.append` encodeSigHash32 sh
+    let newIn = buildInputs (txIn tx) out i sh
+    -- When sighash = SigSingle and outs > ins, then sign integer 1
+    fromMaybe (setBit 0 248) $ do
+        newOut <- buildOutputs (txOut tx) i sh
+        let newTx = tx{ txIn = newIn, txOut = newOut }
+        return $ doubleHash256 $ encode' newTx `BS.append` encodeSigHash32 sh
 
 -- Builds transaction inputs for computing SigHashes
-buildInputs :: [TxIn] -> Script -> Int -> SigHash -> Either String [TxIn]
+buildInputs :: [TxIn] -> Script -> Int -> SigHash -> [TxIn]
 buildInputs txins out i sh
-    | i >= length txins = Left $ "buildInputs: index out of range " ++ (show i)
-    | anyoneCanPay sh   = return $ (txins !! i) { scriptInput = out } : []
-    | isSigAll sh || isSigUnknown sh = return single
-    | otherwise         = return $ map noSeq $ zip single [0..]
+    | anyoneCanPay sh   = (txins !! i) { scriptInput = out } : []
+    | isSigAll sh || isSigUnknown sh = single
+    | otherwise         = map noSeq $ zip single [0..]
     where empty  = map (\ti -> ti{ scriptInput = Script [] }) txins
           single = updateIndex i empty $ \ti -> ti{ scriptInput = out }
           noSeq (ti,j) = if i == j then ti else ti{ txInSequence = 0 }
 
 -- Build transaction outputs for computing SigHashes
-buildOutputs :: [TxOut] -> Int -> SigHash -> Either String [TxOut]
+buildOutputs :: [TxOut] -> Int -> SigHash -> Maybe [TxOut]
 buildOutputs txos i sh
     | isSigAll sh || isSigUnknown sh = return txos
     | isSigNone sh = return []
-    | i < 0 || i >= length txos = Left $ 
-        "buildOutputs: index out of range: " ++ (show i)
+    | i >= length txos = Nothing
     | otherwise = return $ buffer ++ [txos !! i]
     where buffer = replicate i $ TxOut (-1) $ Script []
 
