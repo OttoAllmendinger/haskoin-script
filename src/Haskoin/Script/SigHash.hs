@@ -77,7 +77,7 @@ encodeSigHash32 sh = encode' sh `BS.append` BS.pack [0,0,0]
 txSigHash :: Tx -> Script -> Int -> SigHash -> Hash256
 txSigHash tx out i sh = do
     let newIn = buildInputs (txIn tx) out i sh
-    -- When sighash = SigSingle and outs > ins, then sign integer 1
+    -- When SigSingle and input index > outputs, then sign integer 1
     fromMaybe (setBit 0 248) $ do
         newOut <- buildOutputs (txOut tx) i sh
         let newTx = tx{ txIn = newIn, txOut = newOut }
