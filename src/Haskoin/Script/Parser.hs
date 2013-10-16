@@ -38,8 +38,9 @@ data ScriptOutput =
     deriving (Eq, Show)
 
 scriptAddr :: ScriptOutput -> Address
-scriptAddr = ScriptAddress . hash160 . hash256BS . encode' . encodeOutput
-    
+scriptAddr = ScriptAddress . hash160 . hash256BS . toBS
+    where toBS = runPut' . putScriptOps . runScript . encodeOutput 
+
 encodeOutput :: ScriptOutput -> Script
 encodeOutput s = Script $ case s of
     -- Pay to PubKey
