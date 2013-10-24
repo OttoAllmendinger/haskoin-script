@@ -29,6 +29,7 @@ tests =
         , testProperty "decode . encode ScriptOutput" testScriptOutput
         , testProperty "decode . encode ScriptInput" testScriptInput
         , testProperty "decode . encode ScriptHashInput" testScriptHashInput
+        , testProperty "sorting MultiSig scripts" testSortMulSig
         ]
     , testGroup "Script SigHash"
         [ testProperty "canonical signatures" testCanonicalSig
@@ -42,6 +43,30 @@ tests =
     ]
 
 {- Script Parser -}
+
+testScriptOpInt :: ScriptOpInt -> Bool
+testScriptOpInt (ScriptOpInt i) = (intToScriptOp <$> scriptOpToInt i) == Right i
+
+testScriptOutput :: ScriptOutput -> Bool
+testScriptOutput so = (decodeOutput $ encodeOutput so) == Right so
+
+testScriptInput :: ScriptInput -> Bool
+testScriptInput si = (decodeInput $ encodeInput si) == Right si
+
+testScriptHashInput :: ScriptHashInput -> Bool
+testScriptHashInput sh = (decodeScriptHash $ encodeScriptHash sh) == Right sh
+
+testSortMulSig :: ScriptOutput -> Bool
+testSortMulSig out = case out of
+    (PayMulSig _ _) -> check $ sortMulSig out
+    _ -> True
+    where check (PayMulSig ps _) 
+              | length ps <= 1 = True
+              | otherwise = snd $ foldl f (head ps,True) $ tail ps
+          f (a,t) b | t && encode' a <= encode' b = (b,True)
+                    | otherwise   = (b,False)
+        
+{- Script SigHash -}
 
 testCanonicalSig :: TxSignature -> Bool
 testCanonicalSig ts@(TxSignature sig sh) 
@@ -79,24 +104,10 @@ binTxSigCanonical ts@(TxSignature sig sh)
     | isSigUnknown sh = isLeft $ decodeCanonicalSig $ encodeSig ts
     | otherwise = (fromRight $ decodeCanonicalSig $ encodeSig ts) == ts
 
-testScriptOpInt :: ScriptOpInt -> Bool
-testScriptOpInt (ScriptOpInt i) = (intToScriptOp <$> scriptOpToInt i) == Right i
-
-testScriptOutput :: ScriptOutput -> Bool
-testScriptOutput so = (decodeOutput $ encodeOutput so) == Right so
-
-testScriptInput :: ScriptInput -> Bool
-testScriptInput si = (decodeInput $ encodeInput si) == Right si
-
-testScriptHashInput :: ScriptHashInput -> Bool
-testScriptHashInput sh = (decodeScriptHash $ encodeScriptHash sh) == Right sh
-
 testSigHashOne :: Tx -> Script -> Bool -> Property
 testSigHashOne tx s acp = not (null $ txIn tx) ==> 
     if length (txIn tx) > length (txOut tx) 
         then res == (setBit 0 248)
         else res /= (setBit 0 248)
     where res = txSigHash tx s (length (txIn tx) - 1) (SigSingle acp)
-
-
 

@@ -12,6 +12,7 @@ module Haskoin.Script
 , decodeOutput
 , encodeScriptHash
 , decodeScriptHash
+, sortMulSig
 , intToScriptOp
 , scriptOpToInt
 

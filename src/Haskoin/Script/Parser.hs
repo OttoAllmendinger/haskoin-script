@@ -10,6 +10,7 @@ module Haskoin.Script.Parser
 , decodeOutput
 , encodeScriptHash
 , decodeScriptHash
+, sortMulSig
 , intToScriptOp
 , scriptOpToInt
 ) where
@@ -17,6 +18,7 @@ module Haskoin.Script.Parser
 import Control.Monad
 import Control.Applicative
 
+import Data.List
 import Data.Bits
 import Data.Binary
 import Data.Binary.Get
@@ -40,6 +42,12 @@ data ScriptOutput =
 scriptAddr :: ScriptOutput -> Address
 scriptAddr = ScriptAddress . hash160 . hash256BS . toBS
     where toBS = runPut' . putScriptOps . runScript . encodeOutput 
+
+sortMulSig :: ScriptOutput -> ScriptOutput
+sortMulSig out = case out of
+    PayMulSig keys r -> PayMulSig (sortBy f keys) r
+    _ -> error "Can only call orderMulSig on PayMulSig scripts"
+    where f a b = encode' a `compare` encode' b
 
 encodeOutput :: ScriptOutput -> Script
 encodeOutput s = Script $ case s of
