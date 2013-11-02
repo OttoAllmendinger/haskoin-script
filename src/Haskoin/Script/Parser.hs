@@ -4,6 +4,7 @@ module Haskoin.Script.Parser
 , RedeemScript
 , ScriptHashInput(..)
 , scriptAddr
+, scriptRecipient
 , encodeInput
 , decodeInput
 , encodeOutput
@@ -41,7 +42,7 @@ data ScriptOutput =
 
 scriptAddr :: ScriptOutput -> Address
 scriptAddr = ScriptAddress . hash160 . hash256BS . toBS
-    where toBS = runPut' . putScriptOps . runScript . encodeOutput 
+    where toBS = encodeScriptOps . encodeOutput 
 
 sortMulSig :: ScriptOutput -> ScriptOutput
 sortMulSig out = case out of
@@ -116,6 +117,12 @@ scriptOpToInt s
     | otherwise          = Left $ "scriptOpToInt: invalid opcode " ++ (show s)
     where res = (fromIntegral $ BS.head $ encode' s) - 0x50
 
+scriptRecipient :: Script -> Either String Address
+scriptRecipient s = case decodeOutput s of
+    Right (PayPKHash a)     -> return a
+    Right (PayScriptHash a) -> return a
+    _                       -> Left "addrFromScript: bad script type"
+
 data ScriptInput = 
       SpendPK     { runSpendPK        :: !TxSignature }
     | SpendPKHash { runSpendPKHashSig :: !TxSignature 
@@ -165,15 +172,14 @@ data ScriptHashInput = ScriptHashInput
 
 encodeScriptHash :: ScriptHashInput -> Script
 encodeScriptHash (ScriptHashInput i o) =
-    Script $ si ++ [OP_PUSHDATA $ runPut' $ putScriptOps so]
-    where (Script si) = encodeInput i
-          (Script so) = encodeOutput o
+    Script $ (runScript si) ++ [OP_PUSHDATA $ encodeScriptOps so]
+    where si = encodeInput i
+          so = encodeOutput o
 
 decodeScriptHash :: Script -> Either String ScriptHashInput
 decodeScriptHash (Script ops) = case splitAt (length ops - 1) ops of
-    (is,[OP_PUSHDATA bs]) -> fromRunGet getScriptOps bs decodeErr $ \os ->
-        ScriptHashInput <$> (decodeInput  $ Script is) 
-                        <*> (decodeOutput $ Script os)
+    (is,[OP_PUSHDATA bs]) -> 
+        ScriptHashInput <$> (decodeInput $ Script is) 
+                        <*> (decodeOutput =<< decodeScriptOps bs)
     _ -> Left "decodeScriptHash: Script did not match input template"
-    where decodeErr = Left "decodeScriptHash: could not decode redeem script"
 
