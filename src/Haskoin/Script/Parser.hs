@@ -14,6 +14,13 @@ module Haskoin.Script.Parser
 , sortMulSig
 , intToScriptOp
 , scriptOpToInt
+, isPayPK
+, isPayPKHash
+, isPayMulSig
+, isPayScriptHash
+, isSpendPK
+, isSpendPKHash
+, isSpendMulSig
 ) where
 
 import Control.Monad
@@ -39,6 +46,22 @@ data ScriptOutput =
                     }
     | PayScriptHash { runPayScriptHash  :: !Address }
     deriving (Eq, Show)
+
+isPayPK :: ScriptOutput -> Bool
+isPayPK (PayPK _) = True
+isPayPK _ = False
+
+isPayPKHash :: ScriptOutput -> Bool
+isPayPKHash (PayPKHash _) = True
+isPayPKHash _ = False
+
+isPayMulSig :: ScriptOutput -> Bool
+isPayMulSig (PayMulSig _ _) = True
+isPayMulSig _ = False
+
+isPayScriptHash :: ScriptOutput -> Bool
+isPayScriptHash (PayScriptHash _) = True
+isPayScriptHash _ = False
 
 scriptAddr :: ScriptOutput -> Address
 scriptAddr = ScriptAddress . hash160 . hash256BS . toBS
@@ -132,6 +155,18 @@ data ScriptInput =
                   , runRequiredSigs   :: !Int
                   }
     deriving (Eq, Show)
+
+isSpendPK :: ScriptInput -> Bool
+isSpendPK (SpendPK _) = True
+isSpendPK _ = False
+
+isSpendPKHash :: ScriptInput -> Bool
+isSpendPKHash (SpendPKHash _ _) = True
+isSpendPKHash _ = False
+
+isSpendMulSig :: ScriptInput -> Bool
+isSpendMulSig (SpendMulSig _ _) = True
+isSpendMulSig _ = False
 
 encodeInput :: ScriptInput -> Script
 encodeInput s = Script $ case s of

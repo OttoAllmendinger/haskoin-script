@@ -16,6 +16,13 @@ module Haskoin.Script
 , sortMulSig
 , intToScriptOp
 , scriptOpToInt
+, isPayPK
+, isPayPKHash
+, isPayMulSig
+, isPayScriptHash
+, isSpendPK
+, isSpendPKHash
+, isSpendMulSig
 
 -- SigHash module
 , SigHash(..)
