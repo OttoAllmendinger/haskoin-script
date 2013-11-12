@@ -24,7 +24,7 @@ library
                        binary == 0.7.*, 
                        bytestring == 0.10.*, 
                        mtl == 2.1.*, 
-                       haskoin-protocol == 0.1.*,
+                       haskoin-protocol == 0.2.*,
                        haskoin-crypto == 0.1.*,
                        haskoin-util == 0.1.*,
                        QuickCheck == 2.5.*
@@ -38,7 +38,7 @@ Test-Suite test-haskoin-script
                        binary == 0.7.*, 
                        bytestring == 0.10.*, 
                        mtl == 2.1.*, 
-                       haskoin-protocol == 0.1.*,
+                       haskoin-protocol == 0.2.*,
                        haskoin-crypto == 0.1.*,
                        haskoin-util == 0.1.*,
                        QuickCheck == 2.5.*, 

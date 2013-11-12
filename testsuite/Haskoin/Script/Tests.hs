@@ -16,6 +16,7 @@ import qualified Data.ByteString as BS
 
 import Haskoin.Script
 import Haskoin.Script.Arbitrary
+import Haskoin.Script.Evaluator
 import Haskoin.Crypto
 import Haskoin.Crypto.Arbitrary
 import Haskoin.Protocol
@@ -23,7 +24,7 @@ import Haskoin.Protocol.Arbitrary
 import Haskoin.Util
 
 tests :: [Test]
-tests = 
+tests =
     [ testGroup "Script Parser"
         [ testProperty "decode . encode OP_1 .. OP_16" testScriptOpInt
         , testProperty "decode . encode ScriptOutput" testScriptOutput
@@ -39,6 +40,9 @@ tests =
         , testProperty "decode . encode TxSignature" binTxSig
         , testProperty "decodeCanonical . encode TxSignature" binTxSigCanonical
         , testProperty "Testing txSigHash with SigSingle" testSigHashOne
+        ]
+    , testGroup "Script Evaluator"
+        [ testProperty "evalScript " testScriptEvalFalse
         ]
     ]
 
@@ -111,3 +115,9 @@ testSigHashOne tx s acp = not (null $ txIn tx) ==>
         else res /= (setBit 0 248)
     where res = txSigHash tx s (length (txIn tx) - 1) (SigSingle acp)
 
+
+
+{- Script Evaluation -}
+
+testScriptEvalFalse :: Script -> Bool
+testScriptEvalFalse sc = not $ evalScript sc
