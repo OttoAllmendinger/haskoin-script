@@ -7,6 +7,7 @@ module Haskoin.Script
 , RedeemScript
 , scriptAddr
 , scriptRecipient
+, scriptSender
 , encodeInput
 , decodeInput
 , encodeOutput

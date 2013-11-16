@@ -5,6 +5,7 @@ module Haskoin.Script.Parser
 , ScriptHashInput(..)
 , scriptAddr
 , scriptRecipient
+, scriptSender
 , encodeInput
 , decodeInput
 , encodeOutput
@@ -144,7 +145,15 @@ scriptRecipient :: Script -> Either String Address
 scriptRecipient s = case decodeOutput s of
     Right (PayPKHash a)     -> return a
     Right (PayScriptHash a) -> return a
-    _                       -> Left "addrFromScript: bad script type"
+    _                       -> Left "scriptRecipient: bad script type"
+
+scriptSender :: Script -> Either String Address
+scriptSender s = case decodeInput s of
+    Right (SpendPKHash _ key) -> return $ pubKeyAddr key
+    Right _ -> Left "scriptSender: bad script type"
+    _ -> case decodeScriptHash s of
+        Right (ScriptHashInput _ rdm) -> return $ scriptAddr rdm
+        _ -> Left "scriptSender: bad script type"
 
 data ScriptInput = 
       SpendPK     { runSpendPK        :: !TxSignature }
