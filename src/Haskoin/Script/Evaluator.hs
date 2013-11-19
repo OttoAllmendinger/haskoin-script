@@ -10,6 +10,7 @@ import Debug.Trace (trace)
 
 import Control.Monad.State
 import Control.Monad.Error
+import Control.Monad.Identity
 
 
 -- see https://github.com/bitcoin/bitcoin/blob/master/src/script.cpp EvalScript
@@ -98,23 +99,20 @@ eval op | isConstant op = pushStack op
 
 
 
-evalT :: ScriptOp -> StateT Program Maybe Bool
-evalT OP_RETURN = StateT $ \p -> Just (False, p)
+eval2 :: ScriptOp -> StateT Program Maybe Bool
+eval2 OP_RETURN = StateT $ \p -> Just (False, p)
 
-popScriptT :: StateT Program Maybe ScriptOp
-popScriptT = StateT f
+popScript2 :: StateT Program Maybe ScriptOp
+popScript2 = StateT f
     where f (i:is, s, a) = Just (i, (is, s, a))
           f ([], _, _) = Nothing
 
-pushStackT :: ScriptOp -> StateT Program Maybe ()
-pushStackT op = state $ \(i,s,a) -> ((), (i, op:s, a))
+pushStack2 :: ScriptOp -> StateT Program Maybe ()
+pushStack2 op = state $ \(i,s,a) -> ((), (i, op:s, a))
 
-popStackT :: StateT Program Maybe ScriptOp
-popStackT = state $ \(i,s:ss,a) -> (s, (i, ss, a))
+popStack2 :: StateT Program Maybe ScriptOp
+popStack2 = state $ \(i,s:ss,a) -> (s, (i, ss, a))
 
-
-
-evalTE :: ScriptOp -> StateT Program (ErrorT e m)
 
 
 runProgram :: (Bool, Program) -> Bool
@@ -134,11 +132,155 @@ evalScript (Script ops) =
 
     runProgram (True, (ops, [], []))
 
-evalScriptTest :: Maybe (ScriptOp, Program)
-evalScriptTest = runStateT test init
-    where init = ([OP_1, OP_2], [], [])
-          test = do
-            x <- popScriptT
-            y <- popScriptT
-            pushStackT x
-            popStackT
+
+
+-- using StateT and (Either String)
+
+
+popStack3 :: StateT Program (Either String) ScriptOp
+popStack3 = StateT f
+    where f (i, s:ss, a) = Right (s, (i, ss, a))
+          f (_, [], _) = Left "popStack failed"
+
+pushStack3 :: ScriptOp -> StateT Program (Either String) ()
+pushStack3 op = state $ \(i, s, a) -> ((), (i, op:s, a))
+
+
+eval3 :: ScriptOp -> StateT Program (Either String) ()
+eval3 OP_DROP = void popStack3
+
+
+run3 :: IO ()
+run3 = do
+        let initState = ([], [OP_1], [])
+            p1 = do
+                x <- popStack3
+                popStack3
+                pushStack3 x
+            p2 = eval3 OP_DROP
+            p3 = do
+                eval3 OP_DROP
+                eval3 OP_DROP
+
+        let r1 = runStateT p1 initState
+        let r2 = runStateT p2 initState
+        let r3 = runStateT p3 initState
+
+        printError r1
+        printError r2
+        printError r3
+
+    where   printError :: Either String ((), Program) -> IO ()
+            printError (Left e) = print $ "run3 error: " ++ e
+            printError (Right ((), p)) = print $ "success: " ++ show p
+
+
+--------------------------------------------------------------------------------
+-- using StateT inside Error Monad
+--
+-- nearly optimal, possible without "return" in state?
+
+data EvalError = EvalError String
+
+instance Error EvalError where
+    noMsg = EvalError "Evaluation Error"
+    strMsg s = EvalError $ noMsg ++ " " ++ s
+
+instance Show EvalError where
+    show (EvalError m) = m
+
+type ProgMonad4 a = StateT Program (ErrorT EvalError Identity) a
+
+popStack4 :: ProgMonad4 ScriptOp
+popStack4 = StateT f
+    where   f (i, s:ss, a) = return (s, (i, ss, a))
+            f (_, [], _) = throwError $ EvalError "popStack4 failed"
+
+pushStack4 :: ScriptOp -> ProgMonad4 ()
+pushStack4 op = StateT $ \(i, s, a) -> return ((), (i, op:s, a))
+
+eval4 :: ScriptOp -> ProgMonad4 ()
+eval4 OP_DROP = void popStack4
+
+
+run4 :: IO ()
+run4 = do
+        let initState = ([], [OP_1], [])
+            p1 = do
+                x <- popStack4
+                popStack4
+                pushStack4 x
+            p2 = eval4 OP_DROP
+            p3 = do
+                eval4 OP_DROP
+                eval4 OP_DROP
+
+        let r1 = runStateT p1 initState
+        let r2 = runStateT p2 initState
+        let r3 = runStateT p3 initState
+
+        printError r1
+        printError r2
+        printError r3
+
+    where   printError :: ErrorT EvalError Identity ((), Program) -> IO ()
+            printError e = do
+                let r = runIdentity . runErrorT $ e
+                case r of
+                    (Right p) -> print $ "run4 success: " ++ show p
+                    (Left m) -> print $ "run4 error: " ++ show m
+
+
+
+
+
+--------------------------------------------------------------------------------
+-- using StateT inside ErrorT Monad ???
+--
+
+{-
+type ProgMonad5 a = ErrorT EvalError (State Program) a
+
+popStack5 :: ProgMonad5 ScriptOp
+popStack5 = StateT f
+    where   f (i, s:ss, a) = return (s, (i, ss, a))
+            f (_, [], _) = throwError $ EvalError "popStack4 failed"
+
+pushStack5 :: ScriptOp -> ProgMonad5 ()
+pushStack5 op = StateT $ \(i, s, a) -> return ((), (i, op:s, a))
+
+eval5 :: ScriptOp -> ProgMonad5 ()
+eval5 OP_DROP = void popStack4
+
+run5 :: IO ()
+run5 = do
+        let initState = ([], [OP_1], [])
+            p1 = do
+                x <- popStack4
+                popStack4
+                pushStack4 x
+            p2 = eval4 OP_DROP
+            p3 = do
+                eval4 OP_DROP
+                eval4 OP_DROP
+
+        let r1 = runStateT p1 initState
+        let r2 = runStateT p2 initState
+        let r3 = runStateT p3 initState
+
+        printError r1
+        printError r2
+        printError r3
+
+    where   printError :: ErrorT EvalError Identity ((), Program) -> IO ()
+            printError e = do
+                let r = runIdentity . runErrorT $ e
+                case r of
+                    (Right p) -> print $ "run4 success: " ++ show p
+                    (Left m) -> print $ "run4 error: " ++ show m
+
+
+
+evalScriptTest :: IO ()
+evalScriptTest = run4
+-}
