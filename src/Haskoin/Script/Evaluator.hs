@@ -9,6 +9,7 @@ import Haskoin.Script.Parser
 import Debug.Trace (trace)
 
 import Control.Monad.State
+import Control.Monad.Error
 
 
 -- see https://github.com/bitcoin/bitcoin/blob/master/src/script.cpp EvalScript
@@ -96,6 +97,26 @@ eval op | isConstant op = pushStack op
         | otherwise     = error $ "unknown op " ++ show op
 
 
+
+evalT :: ScriptOp -> StateT Program Maybe Bool
+evalT OP_RETURN = StateT $ \p -> Just (False, p)
+
+popScriptT :: StateT Program Maybe ScriptOp
+popScriptT = StateT f
+    where f (i:is, s, a) = Just (i, (is, s, a))
+          f ([], _, _) = Nothing
+
+pushStackT :: ScriptOp -> StateT Program Maybe ()
+pushStackT op = state $ \(i,s,a) -> ((), (i, op:s, a))
+
+popStackT :: StateT Program Maybe ScriptOp
+popStackT = state $ \(i,s:ss,a) -> (s, (i, ss, a))
+
+
+
+evalTE :: ScriptOp -> StateT Program (ErrorT e m)
+
+
 runProgram :: (Bool, Program) -> Bool
 runProgram (result, ([], _, _)) = result
 runProgram (_, (op:ops, stack, altstack)) =
@@ -113,5 +134,11 @@ evalScript (Script ops) =
 
     runProgram (True, (ops, [], []))
 
-evalScriptTest :: Bool
-evalScriptTest = evalScript (Script [])
+evalScriptTest :: Maybe (ScriptOp, Program)
+evalScriptTest = runStateT test init
+    where init = ([OP_1, OP_2], [], [])
+          test = do
+            x <- popScriptT
+            y <- popScriptT
+            pushStackT x
+            popStackT
