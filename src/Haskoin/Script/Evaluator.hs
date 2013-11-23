@@ -5,7 +5,6 @@ import Haskoin.Crypto
 import Haskoin.Protocol
 import Haskoin.Script.Parser
 
-
 import Debug.Trace (trace)
 
 import Control.Monad.State
@@ -34,6 +33,8 @@ isConstant op = case op of
     OP_12 -> True
     OP_13 -> True
     OP_14 -> True
+    OP_15 -> True
+    OP_16 -> True
     OP_1NEGATE -> True
     _ -> False
 
@@ -47,138 +48,11 @@ isTrue :: ScriptOp -> Bool
 isTrue OP_0 = False
 isTrue _ = True
 
-type Instructions = [ScriptOp]
-type AltStack = [ScriptOp]
-type Stack = [ScriptOp]
 
-type Program = (Instructions, Stack, AltStack)
+toNumber :: Int -> ScriptOp
+toNumber x = undefined -- TODO
 
 
-popScript :: State Program (Maybe ScriptOp)
-popScript = state $ \(i:is, s, a) -> (Just i, (is, s, a))
-
-pushStack :: ScriptOp -> State Program Bool
-pushStack op = state $ \(i, s, a) -> (True, (i, op:s, a))
-
-popStack :: State Program (Maybe ScriptOp)
-popStack = state p
-    where   p (i, op:s, a) = (Just op, (i, s, a))
-            p (i, [], a) = (Nothing, (i, [], a))
-
-
-pushAltStack :: ScriptOp -> State Program Bool
-pushAltStack op = state $ \(i, s, a) -> (True, (i, op:s, a))
-
-popAltStack :: ScriptOp -> State Program Bool
-popAltStack op = state $ \(i, s, a) -> (True, (i, op:s, a))
-
-
-scriptFail :: State Program Bool
-scriptFail = state $ \p -> (False, p)
-
-
-eval :: ScriptOp -> State Program Bool
-
-eval OP_RETURN = scriptFail
-
-eval OP_VERIFY = do
-    mv <- popStack
-    case mv of
-        Nothing -> return False
-        Just v -> return $ isTrue v
-
-
-eval OP_TOALTSTACK = do
-    mv <- popScript
-    case mv of
-        Nothing -> return False
-        Just v -> pushAltStack v
-
-eval op | isConstant op = pushStack op
-        | otherwise     = error $ "unknown op " ++ show op
-
-
-
-eval2 :: ScriptOp -> StateT Program Maybe Bool
-eval2 OP_RETURN = StateT $ \p -> Just (False, p)
-
-popScript2 :: StateT Program Maybe ScriptOp
-popScript2 = StateT f
-    where f (i:is, s, a) = Just (i, (is, s, a))
-          f ([], _, _) = Nothing
-
-pushStack2 :: ScriptOp -> StateT Program Maybe ()
-pushStack2 op = state $ \(i,s,a) -> ((), (i, op:s, a))
-
-popStack2 :: StateT Program Maybe ScriptOp
-popStack2 = state $ \(i,s:ss,a) -> (s, (i, ss, a))
-
-
-
-runProgram :: (Bool, Program) -> Bool
-runProgram (result, ([], _, _)) = result
-runProgram (_, (op:ops, stack, altstack)) =
-    let (result', program') = runState (eval op) (ops, stack, altstack)
-    in runProgram (result', program')
-
-evalScript :: Script -> Bool
-evalScript (Script ops) =
-    {-
-    let (result, st') = runState runProgram (ops, [], [])
-        runProgram :: State Program Bool
-        runProgram = state $ \(i, s, a) -> (False, ([], [], []))
-    in result
-    -}
-
-    runProgram (True, (ops, [], []))
-
-
-
--- using StateT and (Either String)
-
-
-popStack3 :: StateT Program (Either String) ScriptOp
-popStack3 = StateT f
-    where f (i, s:ss, a) = Right (s, (i, ss, a))
-          f (_, [], _) = Left "popStack failed"
-
-pushStack3 :: ScriptOp -> StateT Program (Either String) ()
-pushStack3 op = state $ \(i, s, a) -> ((), (i, op:s, a))
-
-
-eval3 :: ScriptOp -> StateT Program (Either String) ()
-eval3 OP_DROP = void popStack3
-
-
-run3 :: IO ()
-run3 = do
-        let initState = ([], [OP_1], [])
-            p1 = do
-                x <- popStack3
-                popStack3
-                pushStack3 x
-            p2 = eval3 OP_DROP
-            p3 = do
-                eval3 OP_DROP
-                eval3 OP_DROP
-
-        let r1 = runStateT p1 initState
-        let r2 = runStateT p2 initState
-        let r3 = runStateT p3 initState
-
-        printError r1
-        printError r2
-        printError r3
-
-    where   printError :: Either String ((), Program) -> IO ()
-            printError (Left e) = print $ "run3 error: " ++ e
-            printError (Right ((), p)) = print $ "success: " ++ show p
-
-
---------------------------------------------------------------------------------
--- using StateT inside Error Monad
---
--- nearly optimal, possible without "return" in state?
 
 data EvalError = EvalError String
 
@@ -189,98 +63,174 @@ instance Error EvalError where
 instance Show EvalError where
     show (EvalError m) = m
 
-type ProgMonad4 a = StateT Program (ErrorT EvalError Identity) a
+type Instructions = [ScriptOp]
+type AltStack = [ScriptOp]
+type Stack = [ScriptOp]
 
-popStack4 :: ProgMonad4 ScriptOp
-popStack4 = StateT f
-    where   f (i, s:ss, a) = return (s, (i, ss, a))
-            f (_, [], _) = throwError $ EvalError "popStack4 failed"
+type Program = (Instructions, Stack, AltStack)
 
-pushStack4 :: ScriptOp -> ProgMonad4 ()
-pushStack4 op = StateT $ \(i, s, a) -> return ((), (i, op:s, a))
+type ProgramState = ErrorT EvalError Identity
 
-eval4 :: ScriptOp -> ProgMonad4 ()
-eval4 OP_DROP = void popStack4
+type ProgramTransition a = StateT Program ProgramState a
 
 
-run4 :: IO ()
-run4 = do
-        let initState = ([], [OP_1], [])
-            p1 = do
-                x <- popStack4
-                popStack4
-                pushStack4 x
-            p2 = eval4 OP_DROP
-            p3 = do
-                eval4 OP_DROP
-                eval4 OP_DROP
+-- Program Primitives
 
-        let r1 = runStateT p1 initState
-        let r2 = runStateT p2 initState
-        let r3 = runStateT p3 initState
+-- getProgram :: ProgramTransition Program
+-- getProgram = StateT $ \p -> return (p, p)
 
-        printError r1
-        printError r2
-        printError r3
+-- Script Primitives
 
-    where   printError :: ErrorT EvalError Identity ((), Program) -> IO ()
-            printError e = do
-                let r = runIdentity . runErrorT $ e
-                case r of
-                    (Right p) -> print $ "run4 success: " ++ show p
-                    (Left m) -> print $ "run4 error: " ++ show m
+popScript :: ProgramTransition ScriptOp
+popScript = get >>= f
+    where f (i:is, s, a) = put (is, s, a) >> return i
+          f (_, [], _)   = throwError $ EvalError "popScript: empty stack"
+
+-- Stack Primitives
+
+getStack :: ProgramTransition Stack
+getStack = get >>= \(_, s, _) -> return s
+
+withStack :: ProgramTransition Stack
+withStack = getStack >>= f
+    where f [] = throwError $ EvalError "empty stack"
+          f s  = return s
+
+putStack :: Stack -> ProgramTransition ()
+putStack stack = get >>= \(i, _, a) -> put (i, stack, a)
+
+pushStack :: ScriptOp -> ProgramTransition ()
+pushStack op = withStack >>= \s -> putStack (op:s)
+
+popStack :: ProgramTransition ScriptOp
+popStack = withStack >>= \(s:ss) -> putStack ss >> return s
+
+peekStack :: ProgramTransition ScriptOp
+peekStack = withStack >>= \(s:ss) -> return s
+
+
+-- AltStack Primitives
+
+pushAltStack :: ScriptOp -> ProgramTransition ()
+pushAltStack op = get >>= \(i, s, a) -> put (i, s, op:a)
+
+popAltStack :: ProgramTransition ScriptOp
+popAltStack = get >>= f
+    where   f (i, s, a:as) = put (i, s, as) >> return a
+            f (_, _, []) = throwError $ EvalError "popAltStack: empty stack"
 
 
 
+-- Instruction Evaluation
+
+eval :: ScriptOp -> ProgramTransition ()
+
+-- FlowControl
 
 
---------------------------------------------------------------------------------
--- using StateT inside ErrorT Monad ???
+-- clumsy?
+
+doUntil :: ScriptOp -> Bool -> ProgramTransition ()
+doUntil stop evalOps = do
+    op <- popScript
+    when evalOps $ eval op
+    unless (op == stop) $ skipUntil stop
+
+skipUntil :: ScriptOp -> ProgramTransition ()
+skipUntil stop = doUntil stop False
+
+evalUntil :: ScriptOp -> ProgramTransition ()
+evalUntil stop = doUntil stop True
+
+evalThen :: ProgramTransition ()
+evalThen = evalUntil OP_ELSE >> skipUntil OP_ENDIF
+
+evalElse :: ProgramTransition ()
+evalElse = skipUntil OP_ELSE >> evalUntil OP_ENDIF
+
+eval OP_IF = do
+    cond <- popStack
+    if isTrue cond
+        then evalThen
+        else evalElse
+
+eval OP_NOTIF = do
+    cond <- popStack
+    if isTrue cond
+        then evalElse
+        else evalThen
+
+-- Stack
+
+eval OP_TOALTSTACK = popStack >>= pushAltStack
+
+eval OP_FROMALTSTACK = popAltStack >>= pushStack
+
+eval OP_RETURN = throwError $ EvalError "explicit OP_RETURN"
+
+eval OP_VERIFY = do
+    mv <- popStack
+    unless (isTrue mv) (throwError $ EvalError "OP_VERIFY failed")
+
+eval OP_DEPTH = do
+    (_, s, _) <- get
+    pushStack $ toNumber (length s)
+
+eval OP_DROP = void popScript
+
+eval OP_DUP = do
+    x <- popStack
+    pushStack x
+    pushStack x
+
+eval OP_NIP = do
+    x <- popStack
+    popStack
+    pushStack x
+
+eval OP_OVER = getStack >>= f
+    where f (x1:x2:xs) = putStack (x1:x2:x1:xs)
+          f _ = throwError $ EvalError "OP_OVER: not enough stack items"
+
+eval OP_3DUP = getStack >>= f
+    where f (x1:x2:x3:xs) = putStack (x1:x2:x3:x1:x2:x3:xs)
+          f _ = throwError $ EvalError "OP_3DUP: not enough stack items"
+
+eval op | isConstant op = pushStack op
+        | otherwise     = throwError $ EvalError $ "unknown op " ++ show op
+
+
+
 --
 
-{-
-type ProgMonad5 a = ErrorT EvalError (State Program) a
+evalAll :: ProgramTransition ()
+evalAll = do
+    (i, s, a) <- get
+    case i of
+        [] -> return ()
+        (op:ops) -> do
+            eval op
+            put (ops, s, a)
+            evalAll
 
-popStack5 :: ProgMonad5 ScriptOp
-popStack5 = StateT f
-    where   f (i, s:ss, a) = return (s, (i, ss, a))
-            f (_, [], _) = throwError $ EvalError "popStack4 failed"
+-- exported functions
 
-pushStack5 :: ScriptOp -> ProgMonad5 ()
-pushStack5 op = StateT $ \(i, s, a) -> return ((), (i, op:s, a))
 
-eval5 :: ScriptOp -> ProgMonad5 ()
-eval5 OP_DROP = void popStack4
+-- TOOD better sig?
+runProgram :: [ScriptOp] -> Either EvalError ((), Program)
+runProgram i = runIdentity . runErrorT . runStateT evalAll $ (i, [], [])
 
-run5 :: IO ()
-run5 = do
-        let initState = ([], [OP_1], [])
-            p1 = do
-                x <- popStack4
-                popStack4
-                pushStack4 x
-            p2 = eval4 OP_DROP
-            p3 = do
-                eval4 OP_DROP
-                eval4 OP_DROP
-
-        let r1 = runStateT p1 initState
-        let r2 = runStateT p2 initState
-        let r3 = runStateT p3 initState
-
-        printError r1
-        printError r2
-        printError r3
-
-    where   printError :: ErrorT EvalError Identity ((), Program) -> IO ()
-            printError e = do
-                let r = runIdentity . runErrorT $ e
-                case r of
-                    (Right p) -> print $ "run4 success: " ++ show p
-                    (Left m) -> print $ "run4 error: " ++ show m
-
+evalScript :: [ScriptOp] -> Bool
+evalScript i = case runProgram i of
+    Left _ -> False
+    Right _ -> True -- TODO check top of stack?
 
 
 evalScriptTest :: IO ()
-evalScriptTest = run4
--}
+evalScriptTest = do
+    let initState = ([], [], [])
+    let result = runIdentity . runErrorT . runStateT (eval OP_OVER) $ initState
+
+    case result of
+        Left e -> putStrLn $ "error: " ++ show e
+        Right s -> putStrLn $ "success -- state: " ++ show s
