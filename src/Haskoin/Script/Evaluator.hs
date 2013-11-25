@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Haskoin.Script.Evaluator (evalScript, evalScriptTest) where
 
 import Haskoin.Util
@@ -10,6 +11,8 @@ import Debug.Trace (trace)
 import Control.Monad.State
 import Control.Monad.Error
 import Control.Monad.Identity
+
+import Control.Applicative ((<$>))
 
 
 -- see https://github.com/bitcoin/bitcoin/blob/master/src/script.cpp EvalScript
@@ -40,8 +43,27 @@ isConstant op = case op of
 
 
 isDisabled :: ScriptOp -> Bool
-isDisabled = return False -- TODO
--- isDisabled x = case x of
+isDisabled op = case op of
+    OP_CAT      -> True
+    OP_SUBSTR   -> True
+    OP_LEFT     -> True
+    OP_RIGHT    -> True
+
+    OP_INVERT   -> True
+    OP_AND      -> True
+    OP_OR       -> True
+    OP_XOR      -> True
+
+    OP_2MUL     -> True
+    OP_2DIV     -> True
+
+    OP_MUL      -> True
+    OP_DIV      -> True
+    OP_MOD      -> True
+    OP_LSHIFT   -> True
+    OP_RSHIFT   -> True
+
+    _           -> False
 
 
 isTrue :: ScriptOp -> Bool
@@ -54,7 +76,7 @@ toNumber x = undefined -- TODO
 
 
 
-data EvalError = EvalError String
+data EvalError = EvalError String | StackError ScriptOp
 
 instance Error EvalError where
     noMsg = EvalError "Evaluation Error"
@@ -74,27 +96,15 @@ type ProgramState = ErrorT EvalError Identity
 type ProgramTransition a = StateT Program ProgramState a
 
 
--- Program Primitives
-
--- getProgram :: ProgramTransition Program
--- getProgram = StateT $ \p -> return (p, p)
-
--- Script Primitives
-
-popScript :: ProgramTransition ScriptOp
-popScript = get >>= f
-    where f (i:is, s, a) = put (is, s, a) >> return i
-          f (_, [], _)   = throwError $ EvalError "popScript: empty stack"
-
 -- Stack Primitives
 
 getStack :: ProgramTransition Stack
 getStack = get >>= \(_, s, _) -> return s
 
 withStack :: ProgramTransition Stack
-withStack = getStack >>= f
-    where f [] = throwError $ EvalError "empty stack"
-          f s  = return s
+withStack = getStack >>= \case
+    [] -> throwError $ EvalError "empty stack"
+    s  -> return s
 
 putStack :: Stack -> ProgramTransition ()
 putStack stack = get >>= \(i, _, a) -> put (i, stack, a)
@@ -108,6 +118,11 @@ popStack = withStack >>= \(s:ss) -> putStack ss >> return s
 peekStack :: ProgramTransition ScriptOp
 peekStack = withStack >>= \(s:ss) -> return s
 
+-- transformStack :: (Stack -> Stack) -> ProgramTransition ()
+-- transformStack f = (getStack >>= putStack . f)
+
+stackError :: ProgramTransition ()
+stackError = get >>= \(i:is, _, _) -> throwError $ StackError i
 
 -- AltStack Primitives
 
@@ -115,9 +130,9 @@ pushAltStack :: ScriptOp -> ProgramTransition ()
 pushAltStack op = get >>= \(i, s, a) -> put (i, s, op:a)
 
 popAltStack :: ProgramTransition ScriptOp
-popAltStack = get >>= f
-    where   f (i, s, a:as) = put (i, s, as) >> return a
-            f (_, _, []) = throwError $ EvalError "popAltStack: empty stack"
+popAltStack = get >>= \case
+    (i, s, a:as) -> put (i, s, as) >> return a
+    (_, _, [])   -> throwError $ EvalError "popAltStack: empty stack"
 
 
 
@@ -125,81 +140,84 @@ popAltStack = get >>= f
 
 eval :: ScriptOp -> ProgramTransition ()
 
--- FlowControl
+-- Flow Control
+
+-- TODO check nested conditionals
+
+evalIf :: Bool -> ProgramTransition ()
+evalIf cond = case cond of
+    True -> evalUntil OP_ELSE >> skipUntil OP_ENDIF
+    False -> skipUntil OP_ELSE >> evalUntil OP_ENDIF
+    where
+        doUntil stop evalOps = do
+            (i:is, s, a) <- get
+
+            when (is == []) $ throwError $ EvalError "premature end"
+
+            unless (i == stop) $ do
+                when evalOps $ (eval i)
+                put (is, s, a)
+                doUntil stop evalOps
+
+        skipUntil stop = doUntil stop False
+        evalUntil stop = doUntil stop True
 
 
--- clumsy?
 
-doUntil :: ScriptOp -> Bool -> ProgramTransition ()
-doUntil stop evalOps = do
-    op <- popScript
-    when evalOps $ eval op
-    unless (op == stop) $ skipUntil stop
+eval OP_NOP = return ()
 
-skipUntil :: ScriptOp -> ProgramTransition ()
-skipUntil stop = doUntil stop False
+eval OP_IF = popStack >>= evalIf . isTrue
 
-evalUntil :: ScriptOp -> ProgramTransition ()
-evalUntil stop = doUntil stop True
+eval OP_NOTIF = popStack >>= evalIf . not . isTrue
 
-evalThen :: ProgramTransition ()
-evalThen = evalUntil OP_ELSE >> skipUntil OP_ENDIF
+eval OP_ELSE = throwError $ EvalError "OP_ELSE outside OP_IF"
 
-evalElse :: ProgramTransition ()
-evalElse = skipUntil OP_ELSE >> evalUntil OP_ENDIF
+eval OP_ENDIF = throwError $ EvalError "OP_ENDIF outside OP_IF"
 
-eval OP_IF = do
-    cond <- popStack
-    if isTrue cond
-        then evalThen
-        else evalElse
+eval OP_VERIFY = isTrue <$> popStack >>= \case
+    True -> throwError $ EvalError "OP_VERIFY failed"
+    _    -> return ()
 
-eval OP_NOTIF = do
-    cond <- popStack
-    if isTrue cond
-        then evalElse
-        else evalThen
+eval OP_RETURN = throwError $ EvalError "explicit OP_RETURN"
+
+
 
 -- Stack
+
 
 eval OP_TOALTSTACK = popStack >>= pushAltStack
 
 eval OP_FROMALTSTACK = popAltStack >>= pushStack
 
-eval OP_RETURN = throwError $ EvalError "explicit OP_RETURN"
-
-eval OP_VERIFY = do
-    mv <- popStack
-    unless (isTrue mv) (throwError $ EvalError "OP_VERIFY failed")
+eval OP_IFDUP = do
+    v <- peekStack
+    when (isTrue v) (pushStack v)
 
 eval OP_DEPTH = do
-    (_, s, _) <- get
+    s <- getStack
     pushStack $ toNumber (length s)
 
-eval OP_DROP = void popScript
+eval OP_DROP = void popStack
 
-eval OP_DUP = do
-    x <- popStack
-    pushStack x
-    pushStack x
+eval OP_DUP = getStack >>= \case
+    (x1:xs) -> putStack (x1:x1:xs)
+    _ -> stackError
 
-eval OP_NIP = do
-    x <- popStack
-    popStack
-    pushStack x
+eval OP_NIP = getStack >>= \case
+    (x1:x2:xs)  -> putStack (x1:xs)
+    _ -> stackError
 
-eval OP_OVER = getStack >>= f
-    where f (x1:x2:xs) = putStack (x1:x2:x1:xs)
-          f _ = throwError $ EvalError "OP_OVER: not enough stack items"
+eval OP_OVER = getStack >>= \case
+    (x1:x2:xs) -> putStack (x1:x2:x1:xs)
+    _ -> stackError
 
-eval OP_3DUP = getStack >>= f
-    where f (x1:x2:x3:xs) = putStack (x1:x2:x3:x1:x2:x3:xs)
-          f _ = throwError $ EvalError "OP_3DUP: not enough stack items"
+eval OP_3DUP = getStack >>= \case
+    (x1:x2:x3:xs) -> putStack (x1:x2:x3:x1:x2:x3:xs)
+    _ -> stackError
 
 eval op | isConstant op = pushStack op
+        | isDisabled op = throwError $ EvalError $ "disabled op " ++ show op
         | otherwise     = throwError $ EvalError $ "unknown op " ++ show op
-
-
 
 --
 
@@ -215,15 +233,15 @@ evalAll = do
 
 -- exported functions
 
-
--- TOOD better sig?
 runProgram :: [ScriptOp] -> Either EvalError ((), Program)
 runProgram i = runIdentity . runErrorT . runStateT evalAll $ (i, [], [])
 
 evalScript :: [ScriptOp] -> Bool
 evalScript i = case runProgram i of
     Left _ -> False
-    Right _ -> True -- TODO check top of stack?
+    Right ((), (_, stack, _)) -> case stack of
+        (x:xs)  -> isTrue x
+        []      -> False
 
 
 evalScriptTest :: IO ()
