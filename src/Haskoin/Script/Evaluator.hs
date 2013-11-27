@@ -156,15 +156,9 @@ tStack2 f = f <$> popStack <*> popStack >>= prependStack
 tStack3 :: (ScriptOp -> ScriptOp -> ScriptOp -> Stack) -> ProgramTransition ()
 tStack3 f = f <$> popStack <*> popStack <*> popStack >>= prependStack
 
-
 tStack4 :: (ScriptOp -> ScriptOp -> ScriptOp -> ScriptOp -> Stack)
             -> ProgramTransition ()
 tStack4 f = f <$> popStack <*> popStack <*> popStack <*> popStack
-            >>= prependStack
-
-tStack5 :: (ScriptOp -> ScriptOp -> ScriptOp ->ScriptOp -> ScriptOp -> Stack)
-            -> ProgramTransition ()
-tStack5 f = f <$> popStack <*> popStack <*> popStack <*> popStack <*> popStack
             >>= prependStack
 
 tStack6 :: (ScriptOp -> ScriptOp -> ScriptOp ->
