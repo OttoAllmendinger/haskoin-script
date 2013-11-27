@@ -52,6 +52,10 @@ isTrue :: ScriptOp -> Bool
 isTrue OP_0 = False
 isTrue _ = True
 
+boolOp :: Bool -> ScriptOp
+boolOp False = OP_0
+boolOp True = OP_1
+
 
 toNumber :: Int -> ScriptOp
 toNumber x = undefined -- TODO
@@ -75,6 +79,7 @@ instance Error EvalError where
 
 instance Show EvalError where
     show (EvalError m) = m
+    show (StackError op) = (show op) ++ ": Stack Error"
 
 type Instructions = [ScriptOp]
 type AltStack = [ScriptOp]
@@ -106,7 +111,7 @@ getStack = get >>= \(_, s, _) -> return s
 
 withStack :: ProgramTransition Stack
 withStack = getStack >>= \case
-    [] -> throwError $ EvalError "empty stack"
+    [] -> stackError
     s  -> return s
 
 putStack :: Stack -> ProgramTransition ()
@@ -116,7 +121,7 @@ prependStack :: Stack -> ProgramTransition ()
 prependStack s = getStack >>= \s' -> putStack $ s ++ s'
 
 pushStack :: ScriptOp -> ProgramTransition ()
-pushStack op = withStack >>= \s -> putStack (op:s)
+pushStack op = getStack >>= \s -> putStack (op:s)
 
 popStack :: ProgramTransition ScriptOp
 popStack = withStack >>= \(s:ss) -> putStack ss >> return s
@@ -167,24 +172,13 @@ tStack6 :: (ScriptOp -> ScriptOp -> ScriptOp ->
 tStack6 f = f <$> popStack <*> popStack <*> popStack
               <*> popStack <*> popStack <*> popStack >>= prependStack
 
+arith1 :: (Int -> Int) -> ProgramTransition ()
+arith1 f = tStack1 $ return . toNumber . f . fromNumber
 
+arith2 :: (Int -> Int -> Int) -> ProgramTransition ()
+arith2 f = tStack2 $ \a b -> return $ toNumber $ f (fromNumber a) (fromNumber b)
 
-stackOpUnary :: (ScriptOp -> ScriptOp) -> ProgramTransition ()
-stackOpUnary f = f <$> popStack >>= pushStack
-
-arithUnary :: (Int -> Int) -> ProgramTransition ()
-arithUnary f = stackOpUnary $ toNumber . f . fromNumber
-
-stackOpBinary :: (ScriptOp -> ScriptOp -> ScriptOp) -> ProgramTransition ()
-stackOpBinary f = getStack >>= \case
-    (a:b:xs) -> putStack (f a b:xs)
-    _ -> stackError
-
-arithBinary :: (Int -> Int -> Int) -> ProgramTransition ()
-arithBinary f = stackOpBinary $
-    \a b -> toNumber $ f (fromNumber a) (fromNumber b)
-
-stackError :: ProgramTransition ()
+stackError :: ProgramTransition a
 stackError = getOp >>= throwError . StackError
 
 disabled :: ProgramTransition ()
@@ -244,7 +238,7 @@ eval OP_RETURN = throwError $ EvalError "explicit OP_RETURN"
 
 eval OP_TOALTSTACK = popStack >>= pushAltStack
 eval OP_FROMALTSTACK = popAltStack >>= pushStack
-eval OP_IFDUP   = tStack1 $ \case OP_FALSE -> [] ; a -> [a, a]
+eval OP_IFDUP   = tStack1 $ \case OP_0 -> [] ; a -> [a, a]
 eval OP_DEPTH   = getStack >>= pushStack . toNumber . length
 eval OP_DROP    = void popStack
 eval OP_DUP     = tStack1 $ \a -> [a, a]
@@ -281,22 +275,37 @@ eval OP_EQUALVERIFY = (eval OP_EQUAL) >> (eval OP_VERIFY)
 
 -- Arithmetic
 
-eval OP_1ADD    = arithUnary (+1)
-eval OP_1SUB    = arithUnary (subtract 1)
+eval OP_1ADD    = arith1 (+1)
+eval OP_1SUB    = arith1 (subtract 1)
 eval OP_2MUL    = disabled
 eval OP_2DIV    = disabled
-eval OP_NEGATE  = arithUnary negate
-eval OP_ABS     = arithUnary abs
-eval OP_NOT     = stackOpUnary $ \case OP_0 -> OP_1; _ -> OP_0
-eval OP_0NOTEQUAL = stackOpUnary $ \case OP_0 -> OP_0; _ -> OP_1
-eval OP_ADD     = arithBinary (+)
-eval OP_SUB     = arithBinary (-)
+eval OP_NEGATE  = arith1 negate
+eval OP_ABS     = arith1 abs
+eval OP_NOT         = arith1 $ \case 0 -> 1; _ -> 0
+eval OP_0NOTEQUAL   = arith1 $ \case 0 -> 0; _ -> 1
+eval OP_ADD     = arith2 (+)
+eval OP_SUB     = arith2 (-)
 eval OP_MUL     = disabled
 eval OP_DIV     = disabled
 eval OP_MOD     = disabled
 eval OP_LSHIFT  = disabled
 eval OP_RSHIFT  = disabled
+eval OP_BOOLAND     = tStack2 $ \a b -> return $ boolOp ((isTrue a) && (isTrue b))
+eval OP_BOOLOR      = tStack2 $ \a b -> return $ boolOp ((isTrue a) || (isTrue b))
+eval OP_NUMEQUAL    = tStack2 $ \a b -> return $ boolOp $ a == b
+eval OP_NUMEQUALVERIFY = eval OP_NUMEQUAL >> eval OP_VERIFY
+-- eval OP_NUMNOTEQUAL = tStack2 $ \a b -> return $ boolOp $ a /= b
+-- eval OP_LESSTHAN    = tStack2 $ \a b -> return $ boolOp $ a < b
+-- eval OP_GREATERTHAN = tStack2 $ \a b -> return $ boolOp $ a > b
+-- eval OP_LESSTHANOREQUAL     = tStack2 $ \a b -> return $ boolOp $ a <= b
+-- eval OP_GREATERTHANOREQUAL  = tStack2 $ \a b -> return $ boolOp $ a >= b
+-- eval OP_MIN     = tStack2 $ \a b -> return $ fromNumber . min (toNumber a) (toNumber b)
 
+{-
+eval OP_BOOLOR  = tStack2 $ f where
+    f OP_1 _ = [OP_1]
+    f _ OP_1 = [OP_1]
+-}
 
 eval op | isConstant op = pushStack op
         | otherwise     = throwError $ EvalError $ "unknown op " ++ show op
@@ -328,8 +337,8 @@ evalScript i = case runProgram i of
 
 evalScriptTest :: IO ()
 evalScriptTest = do
-    let initState = ([], [], [])
-    let result = runIdentity . runErrorT . runStateT (eval OP_OVER) $ initState
+    let initState = ([OP_1, OP_0, OP_BOOLAND], [], [])
+    let result = runIdentity . runErrorT . runStateT evalAll $ initState
 
     case result of
         Left e -> putStrLn $ "error: " ++ show e
