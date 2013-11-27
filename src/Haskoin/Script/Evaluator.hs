@@ -43,27 +43,9 @@ isConstant op = case op of
 
 
 isDisabled :: ScriptOp -> Bool
-isDisabled op = case op of
-    OP_CAT      -> True
-    OP_SUBSTR   -> True
-    OP_LEFT     -> True
-    OP_RIGHT    -> True
-
-    OP_INVERT   -> True
-    OP_AND      -> True
-    OP_OR       -> True
-    OP_XOR      -> True
-
-    OP_2MUL     -> True
-    OP_2DIV     -> True
-
-    OP_MUL      -> True
-    OP_DIV      -> True
-    OP_MOD      -> True
-    OP_LSHIFT   -> True
-    OP_RSHIFT   -> True
-
-    _           -> False
+isDisabled op = case runProgram [op] of
+    Left (DisabledOp _) -> True
+    _ -> False
 
 
 isTrue :: ScriptOp -> Bool
@@ -74,9 +56,18 @@ isTrue _ = True
 toNumber :: Int -> ScriptOp
 toNumber x = undefined -- TODO
 
+fromNumber :: ScriptOp -> Int
+fromNumber op = undefined -- TODO
+
+opSize :: ScriptOp -> Int
+opSize op = undefined -- TODO
 
 
-data EvalError = EvalError String | StackError ScriptOp
+
+data EvalError =
+    EvalError String
+    | StackError ScriptOp
+    | DisabledOp ScriptOp
 
 instance Error EvalError where
     noMsg = EvalError "Evaluation Error"
@@ -95,6 +86,18 @@ type ProgramState = ErrorT EvalError Identity
 
 type ProgramTransition a = StateT Program ProgramState a
 
+
+-- Script Primitives
+
+getOp :: ProgramTransition ScriptOp
+getOp = get >>= \case
+    ([], _, _) -> throwError $ EvalError "getOp: empty script"
+    (i:_, _, _) -> return i
+
+popOp :: ProgramTransition ScriptOp
+popOp = get >>= \case
+    ([], _, _) -> throwError $ EvalError "popOp: empty script"
+    (i:is, s, a) -> put (is, s, a) >> return i
 
 -- Stack Primitives
 
@@ -118,11 +121,28 @@ popStack = withStack >>= \(s:ss) -> putStack ss >> return s
 peekStack :: ProgramTransition ScriptOp
 peekStack = withStack >>= \(s:ss) -> return s
 
+pickStack :: Bool -> Int -> ProgramTransition ()
+pickStack remove n = do
+    stack <- getStack
+
+    when (n < 0) $
+        throwError $ EvalError "pickStack: n < 0"
+    when (n > (length stack)) $
+        throwError $ EvalError "pickStack: n > size"
+
+    let v = stack !! n
+    when remove $ putStack $ (take (n-1) stack) ++ (drop n stack)
+    pushStack v
+
+
 -- transformStack :: (Stack -> Stack) -> ProgramTransition ()
 -- transformStack f = (getStack >>= putStack . f)
 
 stackError :: ProgramTransition ()
-stackError = get >>= \(i:is, _, _) -> throwError $ StackError i
+stackError = getOp >>= throwError . StackError
+
+disabled :: ProgramTransition ()
+disabled = getOp >>= throwError . DisabledOp
 
 -- AltStack Primitives
 
@@ -150,13 +170,10 @@ evalIf cond = case cond of
     False -> skipUntil OP_ELSE >> evalUntil OP_ENDIF
     where
         doUntil stop evalOps = do
-            (i:is, s, a) <- get
-
-            when (is == []) $ throwError $ EvalError "premature end"
-
-            unless (i == stop) $ do
-                when evalOps $ (eval i)
-                put (is, s, a)
+            op <- getOp
+            unless (op == stop) $ do
+                when evalOps $ (eval op)
+                popOp
                 doUntil stop evalOps
 
         skipUntil stop = doUntil stop False
@@ -193,9 +210,7 @@ eval OP_IFDUP = do
     v <- peekStack
     when (isTrue v) (pushStack v)
 
-eval OP_DEPTH = do
-    s <- getStack
-    pushStack $ toNumber (length s)
+eval OP_DEPTH = getStack >>= pushStack . toNumber . length
 
 eval OP_DROP = void popStack
 
@@ -211,12 +226,118 @@ eval OP_OVER = getStack >>= \case
     (x1:x2:xs) -> putStack (x1:x2:x1:xs)
     _ -> stackError
 
+eval OP_PICK = fromNumber <$> popStack >>= (pickStack False)
+
+eval OP_ROLL = fromNumber <$> popStack >>= (pickStack True)
+
+eval OP_ROT = getStack >>= \case
+    (x1:x2:x3:xs) -> putStack (x3:x2:x1:xs)
+    _ -> stackError
+
+eval OP_SWAP = getStack >>= \case
+    (x1:x2:xs) -> putStack (x2:x1:xs)
+    _ -> stackError
+
+eval OP_TUCK = getStack >>= \case
+    (x1:x2:xs) -> putStack (x2:x1:x2:xs)
+    _ -> stackError
+
+eval OP_2DROP = void $ popStack >> popStack
+
+eval OP_2DUP = getStack >>= \case
+    (x1:x2:xs) -> putStack (x1:x2:x1:x2:xs)
+    _ -> stackError
+
 eval OP_3DUP = getStack >>= \case
     (x1:x2:x3:xs) -> putStack (x1:x2:x3:x1:x2:x3:xs)
     _ -> stackError
 
+-- eval OP_3DUP = transStack3 $ \(a, b, c) -> [a,b,c,a,b,c]
+
+eval OP_2OVER = getStack >>= \case
+    (x1:x2:x3:x4:xs) -> putStack (x1:x2:x3:x4:x1:x2:xs)
+    _ -> stackError
+
+-- eval OP_2OVER = tStack4 $ \a b c d -> [a, b, c, d, a, b]
+
+eval OP_2ROT = getStack >>= \case
+    (x1:x2:x3:x4:x5:x6:xs) -> putStack (x3:x4:x5:x6:x1:x2:xs)
+    _ -> stackError
+
+{-
+eval OP_2SWAP = getStack >>= \case
+    (x1:x2:x3:x4:xs) -> putStack (x3:x4:x1:x2:xs)
+    _ -> stackError
+-}
+
+eval OP_2SWAP = tStack4 $ \a b c d -> [c, d, a, b]
+
+
+-- Splice
+
+eval OP_CAT = disabled
+
+eval OP_SUBSTR = disabled
+
+eval OP_LEFT = disabled
+
+eval OP_RIGHT = disabled
+
+eval OP_SIZE = (opSize <$> popStack) >>= pushStack . toNumber
+
+-- Bitwise Logic
+
+
+eval OP_INVERT = disabled
+
+eval OP_AND = disabled
+
+eval OP_OR = disabled
+
+eval OP_XOR = disabled
+
+eval OP_EQUAL = getStack >>= \case
+    (x1:x2:xs) -> if (x1 == x2) then pushStack OP_1 else pushStack OP_0
+    _ -> stackError
+
+eval OP_EQUALVERIFY = (eval OP_EQUAL) >> (eval OP_VERIFY)
+
+-- Arithmetic
+
+eval OP_1ADD = arithUnary (+1)
+
+eval OP_1SUB = arithUnary (subtract 1)
+
+eval OP_2MUL = disabled
+
+eval OP_2DIV = disabled
+
+eval OP_NEGATE = arithUnary negate
+
+eval OP_ABS = arithUnary abs
+
+eval OP_NOT = stackOpUnary $ \case
+    OP_0 -> OP_1
+    _ -> OP_0
+
+eval OP_0NOTEQUAL = stackOpUnary $ \case
+    OP_0 -> OP_0
+    _ -> OP_1
+
+eval OP_ADD = arithBinary (+)
+
+eval OP_SUB = arithBinary (-)
+
+eval OP_MUL = disabled
+eval OP_DIV = disabled
+eval OP_MOD = disabled
+eval OP_LSHIFT = disabled
+eval OP_RSHIFT = disabled
+
+
+
+
 eval op | isConstant op = pushStack op
-        | isDisabled op = throwError $ EvalError $ "disabled op " ++ show op
         | otherwise     = throwError $ EvalError $ "unknown op " ++ show op
 
 --
@@ -228,7 +349,7 @@ evalAll = do
         [] -> return ()
         (op:ops) -> do
             eval op
-            put (ops, s, a)
+            popOp
             evalAll
 
 -- exported functions
