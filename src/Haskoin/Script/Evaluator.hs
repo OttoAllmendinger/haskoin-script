@@ -12,7 +12,7 @@ import Control.Monad.State
 import Control.Monad.Error
 import Control.Monad.Identity
 
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<*>))
 
 
 -- see https://github.com/bitcoin/bitcoin/blob/master/src/script.cpp EvalScript
@@ -112,6 +112,9 @@ withStack = getStack >>= \case
 putStack :: Stack -> ProgramTransition ()
 putStack stack = get >>= \(i, _, a) -> put (i, stack, a)
 
+prependStack :: Stack -> ProgramTransition ()
+prependStack s = getStack >>= \s' -> putStack $ s ++ s'
+
 pushStack :: ScriptOp -> ProgramTransition ()
 pushStack op = withStack >>= \s -> putStack (op:s)
 
@@ -137,6 +140,49 @@ pickStack remove n = do
 
 -- transformStack :: (Stack -> Stack) -> ProgramTransition ()
 -- transformStack f = (getStack >>= putStack . f)
+
+
+tStack1 :: (ScriptOp -> Stack) -> ProgramTransition ()
+tStack1 f = f <$> popStack >>= prependStack
+
+tStack2 :: (ScriptOp -> ScriptOp -> Stack) -> ProgramTransition ()
+tStack2 f = f <$> popStack <*> popStack >>= prependStack
+
+tStack3 :: (ScriptOp -> ScriptOp -> ScriptOp -> Stack) -> ProgramTransition ()
+tStack3 f = f <$> popStack <*> popStack <*> popStack >>= prependStack
+
+
+tStack4 :: (ScriptOp -> ScriptOp -> ScriptOp -> ScriptOp -> Stack)
+            -> ProgramTransition ()
+tStack4 f = f <$> popStack <*> popStack <*> popStack <*> popStack
+            >>= prependStack
+
+tStack5 :: (ScriptOp -> ScriptOp -> ScriptOp ->ScriptOp -> ScriptOp -> Stack)
+            -> ProgramTransition ()
+tStack5 f = f <$> popStack <*> popStack <*> popStack <*> popStack <*> popStack
+            >>= prependStack
+
+tStack6 :: (ScriptOp -> ScriptOp -> ScriptOp ->
+            ScriptOp -> ScriptOp -> ScriptOp -> Stack) -> ProgramTransition ()
+tStack6 f = f <$> popStack <*> popStack <*> popStack
+              <*> popStack <*> popStack <*> popStack >>= prependStack
+
+
+
+stackOpUnary :: (ScriptOp -> ScriptOp) -> ProgramTransition ()
+stackOpUnary f = f <$> popStack >>= pushStack
+
+arithUnary :: (Int -> Int) -> ProgramTransition ()
+arithUnary f = stackOpUnary $ toNumber . f . fromNumber
+
+stackOpBinary :: (ScriptOp -> ScriptOp -> ScriptOp) -> ProgramTransition ()
+stackOpBinary f = getStack >>= \case
+    (a:b:xs) -> putStack (f a b:xs)
+    _ -> stackError
+
+arithBinary :: (Int -> Int -> Int) -> ProgramTransition ()
+arithBinary f = stackOpBinary $
+    \a b -> toNumber $ f (fromNumber a) (fromNumber b)
 
 stackError :: ProgramTransition ()
 stackError = getOp >>= throwError . StackError
@@ -180,16 +226,11 @@ evalIf cond = case cond of
         evalUntil stop = doUntil stop True
 
 
-
-eval OP_NOP = return ()
-
-eval OP_IF = popStack >>= evalIf . isTrue
-
-eval OP_NOTIF = popStack >>= evalIf . not . isTrue
-
-eval OP_ELSE = throwError $ EvalError "OP_ELSE outside OP_IF"
-
-eval OP_ENDIF = throwError $ EvalError "OP_ENDIF outside OP_IF"
+eval OP_NOP     = return ()
+eval OP_IF      = popStack >>= evalIf . isTrue
+eval OP_NOTIF   = popStack >>= evalIf . not . isTrue
+eval OP_ELSE    = throwError $ EvalError "OP_ELSE outside OP_IF"
+eval OP_ENDIF   = throwError $ EvalError "OP_ENDIF outside OP_IF"
 
 eval OP_VERIFY = isTrue <$> popStack >>= \case
     True -> throwError $ EvalError "OP_VERIFY failed"
@@ -201,140 +242,60 @@ eval OP_RETURN = throwError $ EvalError "explicit OP_RETURN"
 
 -- Stack
 
-
 eval OP_TOALTSTACK = popStack >>= pushAltStack
-
 eval OP_FROMALTSTACK = popAltStack >>= pushStack
-
-eval OP_IFDUP = do
-    v <- peekStack
-    when (isTrue v) (pushStack v)
-
-eval OP_DEPTH = getStack >>= pushStack . toNumber . length
-
-eval OP_DROP = void popStack
-
-eval OP_DUP = getStack >>= \case
-    (x1:xs) -> putStack (x1:x1:xs)
-    _ -> stackError
-
-eval OP_NIP = getStack >>= \case
-    (x1:x2:xs)  -> putStack (x1:xs)
-    _ -> stackError
-
-eval OP_OVER = getStack >>= \case
-    (x1:x2:xs) -> putStack (x1:x2:x1:xs)
-    _ -> stackError
-
-eval OP_PICK = fromNumber <$> popStack >>= (pickStack False)
-
-eval OP_ROLL = fromNumber <$> popStack >>= (pickStack True)
-
-eval OP_ROT = getStack >>= \case
-    (x1:x2:x3:xs) -> putStack (x3:x2:x1:xs)
-    _ -> stackError
-
-eval OP_SWAP = getStack >>= \case
-    (x1:x2:xs) -> putStack (x2:x1:xs)
-    _ -> stackError
-
-eval OP_TUCK = getStack >>= \case
-    (x1:x2:xs) -> putStack (x2:x1:x2:xs)
-    _ -> stackError
-
-eval OP_2DROP = void $ popStack >> popStack
-
-eval OP_2DUP = getStack >>= \case
-    (x1:x2:xs) -> putStack (x1:x2:x1:x2:xs)
-    _ -> stackError
-
-eval OP_3DUP = getStack >>= \case
-    (x1:x2:x3:xs) -> putStack (x1:x2:x3:x1:x2:x3:xs)
-    _ -> stackError
-
--- eval OP_3DUP = transStack3 $ \(a, b, c) -> [a,b,c,a,b,c]
-
-eval OP_2OVER = getStack >>= \case
-    (x1:x2:x3:x4:xs) -> putStack (x1:x2:x3:x4:x1:x2:xs)
-    _ -> stackError
-
--- eval OP_2OVER = tStack4 $ \a b c d -> [a, b, c, d, a, b]
-
-eval OP_2ROT = getStack >>= \case
-    (x1:x2:x3:x4:x5:x6:xs) -> putStack (x3:x4:x5:x6:x1:x2:xs)
-    _ -> stackError
-
-{-
-eval OP_2SWAP = getStack >>= \case
-    (x1:x2:x3:x4:xs) -> putStack (x3:x4:x1:x2:xs)
-    _ -> stackError
--}
-
-eval OP_2SWAP = tStack4 $ \a b c d -> [c, d, a, b]
-
+eval OP_IFDUP   = tStack1 $ \case OP_FALSE -> [] ; a -> [a, a]
+eval OP_DEPTH   = getStack >>= pushStack . toNumber . length
+eval OP_DROP    = void popStack
+eval OP_DUP     = tStack1 $ \a -> [a, a]
+eval OP_NIP     = tStack2 $ \a b -> [a]
+eval OP_OVER    = tStack2 $ \a b -> [a, b, a]
+eval OP_PICK    = fromNumber <$> popStack >>= (pickStack False)
+eval OP_ROLL    = fromNumber <$> popStack >>= (pickStack True)
+eval OP_ROT     = tStack3 $ \a b c -> [c, b, a]
+eval OP_SWAP    = tStack2 $ \a b -> [b, a]
+eval OP_TUCK    = tStack2 $ \a b -> [b, a, b]
+eval OP_2DROP   = tStack2 $ \a b -> []
+eval OP_2DUP    = tStack2 $ \a b -> [a, b, a, b]
+eval OP_3DUP    = tStack3 $ \a b c -> [a, b, c, a, b, c]
+eval OP_2OVER   = tStack4 $ \a b c d -> [a, b, c, d, a, b]
+eval OP_2ROT    = tStack6 $ \a b c d e f -> [c, d, e, f, a, b]
+eval OP_2SWAP   = tStack4 $ \a b c d -> [c, d, a, b]
 
 -- Splice
 
-eval OP_CAT = disabled
-
-eval OP_SUBSTR = disabled
-
-eval OP_LEFT = disabled
-
-eval OP_RIGHT = disabled
-
-eval OP_SIZE = (opSize <$> popStack) >>= pushStack . toNumber
+eval OP_CAT     = disabled
+eval OP_SUBSTR  = disabled
+eval OP_LEFT    = disabled
+eval OP_RIGHT   = disabled
+eval OP_SIZE    = (opSize <$> popStack) >>= pushStack . toNumber
 
 -- Bitwise Logic
 
-
-eval OP_INVERT = disabled
-
-eval OP_AND = disabled
-
-eval OP_OR = disabled
-
-eval OP_XOR = disabled
-
-eval OP_EQUAL = getStack >>= \case
-    (x1:x2:xs) -> if (x1 == x2) then pushStack OP_1 else pushStack OP_0
-    _ -> stackError
-
+eval OP_INVERT  = disabled
+eval OP_AND     = disabled
+eval OP_OR      = disabled
+eval OP_XOR     = disabled
+eval OP_EQUAL   = tStack2 $ \a b -> if a == b then [OP_1] else [OP_0]
 eval OP_EQUALVERIFY = (eval OP_EQUAL) >> (eval OP_VERIFY)
 
 -- Arithmetic
 
-eval OP_1ADD = arithUnary (+1)
-
-eval OP_1SUB = arithUnary (subtract 1)
-
-eval OP_2MUL = disabled
-
-eval OP_2DIV = disabled
-
-eval OP_NEGATE = arithUnary negate
-
-eval OP_ABS = arithUnary abs
-
-eval OP_NOT = stackOpUnary $ \case
-    OP_0 -> OP_1
-    _ -> OP_0
-
-eval OP_0NOTEQUAL = stackOpUnary $ \case
-    OP_0 -> OP_0
-    _ -> OP_1
-
-eval OP_ADD = arithBinary (+)
-
-eval OP_SUB = arithBinary (-)
-
-eval OP_MUL = disabled
-eval OP_DIV = disabled
-eval OP_MOD = disabled
-eval OP_LSHIFT = disabled
-eval OP_RSHIFT = disabled
-
-
+eval OP_1ADD    = arithUnary (+1)
+eval OP_1SUB    = arithUnary (subtract 1)
+eval OP_2MUL    = disabled
+eval OP_2DIV    = disabled
+eval OP_NEGATE  = arithUnary negate
+eval OP_ABS     = arithUnary abs
+eval OP_NOT     = stackOpUnary $ \case OP_0 -> OP_1; _ -> OP_0
+eval OP_0NOTEQUAL = stackOpUnary $ \case OP_0 -> OP_0; _ -> OP_1
+eval OP_ADD     = arithBinary (+)
+eval OP_SUB     = arithBinary (-)
+eval OP_MUL     = disabled
+eval OP_DIV     = disabled
+eval OP_MOD     = disabled
+eval OP_LSHIFT  = disabled
+eval OP_RSHIFT  = disabled
 
 
 eval op | isConstant op = pushStack op
