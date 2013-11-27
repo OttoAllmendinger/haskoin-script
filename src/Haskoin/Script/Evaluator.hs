@@ -221,8 +221,8 @@ eval OP_ELSE    = throwError $ EvalError "OP_ELSE outside OP_IF"
 eval OP_ENDIF   = throwError $ EvalError "OP_ENDIF outside OP_IF"
 
 eval OP_VERIFY = isTrue <$> popStack >>= \case
-    True -> throwError $ EvalError "OP_VERIFY failed"
-    _    -> return ()
+    False -> throwError $ EvalError "OP_VERIFY failed"
+    True  -> return ()
 
 eval OP_RETURN = throwError $ EvalError "explicit OP_RETURN"
 
