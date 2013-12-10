@@ -1,4 +1,4 @@
-module Haskoin.Script.SigHash
+module Network.Haskoin.Script.SigHash
 ( SigHash(..)
 , encodeSigHash32
 , isSigAll
@@ -22,9 +22,9 @@ import Data.Binary.Get
 import Data.Binary.Put
 import qualified Data.ByteString as BS
 
-import Haskoin.Crypto
-import Haskoin.Protocol
-import Haskoin.Util
+import Network.Haskoin.Crypto
+import Network.Haskoin.Protocol
+import Network.Haskoin.Util
 
 data SigHash = SigAll     { anyoneCanPay :: Bool }   
              | SigNone    { anyoneCanPay :: Bool }     

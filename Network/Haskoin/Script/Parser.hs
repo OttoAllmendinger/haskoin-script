@@ -1,4 +1,4 @@
-module Haskoin.Script.Parser
+module Network.Haskoin.Script.Parser
 ( ScriptOutput(..)
 , ScriptInput(..)
 , RedeemScript
@@ -34,10 +34,10 @@ import Data.Binary.Get
 import Data.Binary.Put
 import qualified Data.ByteString as BS
 
-import Haskoin.Script.SigHash
-import Haskoin.Crypto
-import Haskoin.Protocol
-import Haskoin.Util
+import Network.Haskoin.Script.SigHash
+import Network.Haskoin.Crypto
+import Network.Haskoin.Protocol
+import Network.Haskoin.Util
 
 data ScriptOutput = 
       PayPK         { runPayPubKey      :: !PubKey }

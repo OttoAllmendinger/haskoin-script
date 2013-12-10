@@ -1,8 +1,8 @@
-module Haskoin.Script.Arbitrary where
+module Network.Haskoin.Script.Arbitrary where
 
 import Test.QuickCheck
-import Haskoin.Crypto.Arbitrary
-import Haskoin.Protocol.Arbitrary
+import Network.Haskoin.Crypto.Arbitrary
+import Network.Haskoin.Protocol.Arbitrary
 
 import Control.Monad
 import Control.Applicative
@@ -12,9 +12,9 @@ import Data.Word
 import Data.Maybe
 import qualified Data.ByteString as BS
 
-import Haskoin.Script
-import Haskoin.Protocol
-import Haskoin.Crypto
+import Network.Haskoin.Script
+import Network.Haskoin.Protocol
+import Network.Haskoin.Crypto
 
 instance Arbitrary TxSignature where
     arbitrary = liftM2 TxSignature arbitrary arbitrary

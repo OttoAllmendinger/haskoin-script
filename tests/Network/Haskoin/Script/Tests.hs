@@ -1,4 +1,4 @@
-module Haskoin.Script.Tests (tests) where
+module Network.Haskoin.Script.Tests (tests) where
 
 import Test.QuickCheck.Property hiding ((.&.))
 import Test.Framework
@@ -14,13 +14,13 @@ import Data.Binary.Get
 import Data.Binary.Put
 import qualified Data.ByteString as BS
 
-import Haskoin.Script
-import Haskoin.Script.Arbitrary
-import Haskoin.Crypto
-import Haskoin.Crypto.Arbitrary
-import Haskoin.Protocol
-import Haskoin.Protocol.Arbitrary
-import Haskoin.Util
+import Network.Haskoin.Script
+import Network.Haskoin.Script.Arbitrary
+import Network.Haskoin.Crypto
+import Network.Haskoin.Crypto.Arbitrary
+import Network.Haskoin.Protocol
+import Network.Haskoin.Protocol.Arbitrary
+import Network.Haskoin.Util
 
 tests :: [Test]
 tests = 

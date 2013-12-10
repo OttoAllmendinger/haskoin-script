@@ -1,4 +1,4 @@
-module Haskoin.Script
+module Network.Haskoin.Script
 
 -- Parser module
 ( ScriptOutput(..)
@@ -40,6 +40,6 @@ module Haskoin.Script
 
 ) where
 
-import Haskoin.Script.Parser
-import Haskoin.Script.SigHash
+import Network.Haskoin.Script.Parser
+import Network.Haskoin.Script.SigHash
 
