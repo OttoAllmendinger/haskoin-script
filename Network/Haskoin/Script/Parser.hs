@@ -75,7 +75,8 @@ isPayScriptHash _ = False
 -- in a pay to script hash output.
 scriptAddr :: ScriptOutput -> Address
 scriptAddr = ScriptAddress . hash160 . hash256BS . toBS
-    where toBS = encodeScriptOps . encodeOutput 
+  where 
+    toBS = encodeScriptOps . encodeOutput 
 
 -- | Sorts the public keys of a multisignature output in ascending order by
 -- comparing their serialized representations. This feature allows for easier
@@ -86,7 +87,8 @@ sortMulSig :: ScriptOutput -> ScriptOutput
 sortMulSig out = case out of
     PayMulSig keys r -> PayMulSig (sortBy f keys) r
     _ -> error "Can only call orderMulSig on PayMulSig scripts"
-    where f a b = encode' a `compare` encode' b
+  where 
+    f a b = encode' a `compare` encode' b
 
 -- | Computes a 'Script' from a 'ScriptOutput'. The 'Script' is a list of 
 -- 'ScriptOp' can can be used to build a 'Tx'.
@@ -141,16 +143,18 @@ matchPayMulSig (Script ops) = case splitAt (length ops - 2) ops of
             then liftM2 PayMulSig (go xs) (return intM)
             else Left "matchPayMulSig: Invalid M or N parameters"
     _ -> Left "matchPayMulSig: script did not match output template"
-    where go (OP_PUSHDATA bs:xs) = liftM2 (:) (decodeToEither bs) (go xs)
-          go [] = return []
-          go  _ = Left "matchPayMulSig: invalid multisig opcode"
+  where 
+    go (OP_PUSHDATA bs:xs) = liftM2 (:) (decodeToEither bs) (go xs)
+    go [] = return []
+    go  _ = Left "matchPayMulSig: invalid multisig opcode"
 
 -- | Transforms integers [1 .. 16] to 'ScriptOp' [OP_1 .. OP_16]
 intToScriptOp :: Int -> ScriptOp
 intToScriptOp i
     | i `elem` [1..16] = op
     |        otherwise = error $ "intToScriptOp: Invalid integer " ++ (show i)
-    where op = decode' $ BS.singleton $ fromIntegral $ i + 0x50
+  where 
+    op = decode' $ BS.singleton $ fromIntegral $ i + 0x50
 
 -- | Decode 'ScriptOp' [OP_1 .. OP_16] to integers [1 .. 16]. This functions
 -- fails for other values of 'ScriptOp'
@@ -158,7 +162,8 @@ scriptOpToInt :: ScriptOp -> Either String Int
 scriptOpToInt s 
     | res `elem` [1..16] = return res
     | otherwise          = Left $ "scriptOpToInt: invalid opcode " ++ (show s)
-    where res = (fromIntegral $ BS.head $ encode' s) - 0x50
+  where 
+    res = (fromIntegral $ BS.head $ encode' s) - 0x50
 
 -- | Computes the recipient address of a script. This function fails if the
 -- script could not be decoded as a pay to public key hash or pay to script
@@ -239,12 +244,13 @@ decodeInput s = case runScript s of
 matchSpendMulSig :: Script -> Either String ScriptInput
 matchSpendMulSig (Script ops) = 
     liftM2 SpendMulSig (go ops) (return $ length ops)
-    where go (OP_PUSHDATA bs:xs) = liftM2 (:) (decodeSig bs) (go xs)
-          go (OP_0:xs)
-            | all (== OP_0) xs = return []
-            | otherwise = Left "matchSpendMulSig: invalid opcode after OP_0"
-          go [] = return []
-          go _  = Left "matchSpendMulSig: invalid multisig opcode"
+  where 
+    go (OP_PUSHDATA bs:xs) = liftM2 (:) (decodeSig bs) (go xs)
+    go (OP_0:xs)
+        | all (== OP_0) xs = return []
+        | otherwise = Left "matchSpendMulSig: invalid opcode after OP_0"
+    go [] = return []
+    go _  = Left "matchSpendMulSig: invalid multisig opcode"
 
 type RedeemScript = ScriptOutput
 
@@ -264,8 +270,9 @@ data ScriptHashInput = ScriptHashInput
 encodeScriptHash :: ScriptHashInput -> Script
 encodeScriptHash (ScriptHashInput i o) =
     Script $ (runScript si) ++ [OP_PUSHDATA $ encodeScriptOps so]
-    where si = encodeInput i
-          so = encodeOutput o
+  where 
+    si = encodeInput i
+    so = encodeOutput o
 
 -- | Tries to decode a 'ScriptHashInput' from a 'Script'. This function fails
 -- if the script can not be parsed as a script hash input.
