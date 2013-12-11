@@ -1,38 +1,49 @@
+{-|
+  This package provides functions for parsing and evaluating bitcoin
+  transaction scripts. Data types are provided for building and
+  deconstructing all of the standard input and output script types. 
+-}
 module Network.Haskoin.Script
-
--- Parser module
-( ScriptOutput(..)
-, ScriptInput(..)
-, ScriptHashInput(..)
-, RedeemScript
-, scriptAddr
-, scriptRecipient
-, scriptSender
-, encodeInput
-, decodeInput
+(
+  -- *Script Parsing
+  -- **Script Outputs
+  ScriptOutput(..)
 , encodeOutput
 , decodeOutput
-, encodeScriptHash
-, decodeScriptHash
-, sortMulSig
-, intToScriptOp
-, scriptOpToInt
 , isPayPK
 , isPayPKHash
 , isPayMulSig
 , isPayScriptHash
+, scriptAddr
+, sortMulSig
+  -- **Script Inputs
+, ScriptInput(..)
+, encodeInput
+, decodeInput
 , isSpendPK
 , isSpendPKHash
 , isSpendMulSig
+  -- **ScriptHash Inputs
+, ScriptHashInput(..)
+, RedeemScript
+, encodeScriptHash
+, decodeScriptHash
+  -- * Helpers
+, scriptRecipient
+, scriptSender
+, intToScriptOp
+, scriptOpToInt
 
--- SigHash module
+-- *SigHash
+-- | For additional information on sighashes, see:
+-- <http://en.bitcoin.it/wiki/OP_CHECKSIG>
 , SigHash(..)
+, txSigHash
 , encodeSigHash32
 , isSigAll
 , isSigNone
 , isSigSingle
 , isSigUnknown
-, txSigHash
 , TxSignature(..)
 , encodeSig
 , decodeSig

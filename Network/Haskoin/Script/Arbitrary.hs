@@ -1,16 +1,25 @@
+{-|
+  This module provides arbitrary instances for data types in
+  'Network.Haskoin.Script'.
+-}
 module Network.Haskoin.Script.Arbitrary where
 
-import Test.QuickCheck
-import Network.Haskoin.Crypto.Arbitrary
-import Network.Haskoin.Protocol.Arbitrary
+import Test.QuickCheck 
+    ( Gen
+    , Arbitrary
+    , arbitrary
+    , oneof
+    , choose
+    , vectorOf
+    , elements
+    )
+import Network.Haskoin.Crypto.Arbitrary()
 
-import Control.Monad
-import Control.Applicative
+import Control.Monad (liftM2)
+import Control.Applicative ((<$>),(<*>))
 
-import Data.Bits
-import Data.Word
-import Data.Maybe
-import qualified Data.ByteString as BS
+import Data.Bits (testBit, clearBit)
+import Data.Word (Word8)
 
 import Network.Haskoin.Script
 import Network.Haskoin.Protocol
@@ -37,6 +46,7 @@ instance Arbitrary ScriptOutput where
         , (PayScriptHash . scriptAddr) <$> arbitrary
         ]
 
+-- | Generate an arbitrary 'ScriptOutput' of value PayMulSig.
 genPayMulSig :: Gen ScriptOutput
 genPayMulSig = do
     n <- choose (1,16)
@@ -50,6 +60,7 @@ instance Arbitrary ScriptInput where
         , genSpendMulSig
         ]
 
+-- | Generate an arbitrary 'ScriptInput' of value SpendMulSig.
 genSpendMulSig :: Gen ScriptInput
 genSpendMulSig = do
     m <- choose (1,16)
@@ -59,6 +70,8 @@ genSpendMulSig = do
 instance Arbitrary ScriptHashInput where
     arbitrary = ScriptHashInput <$> arbitrary <*> arbitrary
 
+-- | Data type for generating an arbitrary 'ScriptOp' with a value in
+-- [OP_1 .. OP_16]
 data ScriptOpInt = ScriptOpInt ScriptOp
     deriving (Eq, Show)
 

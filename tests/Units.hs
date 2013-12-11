@@ -1,23 +1,17 @@
 module Units (tests) where
 
-import Test.HUnit
-import Test.Framework
-import Test.Framework.Providers.HUnit
+import Test.HUnit (Assertion, assertBool)
+import Test.Framework (Test, testGroup)
+import Test.Framework.Providers.HUnit (testCase)
 
-import Control.Monad
-import Control.Monad.Trans
-
-import Data.Maybe
-import Data.Binary
-import Data.Binary.Get
-import Data.Binary.Put
-import qualified Data.ByteString as BS
+import Data.Maybe (fromJust)
 
 import Network.Haskoin.Script
 import Network.Haskoin.Protocol
 import Network.Haskoin.Crypto
 import Network.Haskoin.Util
 
+tests :: [Test]
 tests =
     [ testGroup "Canonical signatures" 
         (map canonicalVectorsMap $ zip canonicalVectors [0..])
@@ -28,11 +22,11 @@ tests =
     ]
 
 canonicalVectorsMap :: (String,Int) -> Test.Framework.Test
-canonicalVectorsMap (s,i) = testCase ("Canonical Sig " ++ (show i)) func
+canonicalVectorsMap (_,i) = testCase ("Canonical Sig " ++ (show i)) func
     where func = testCanonicalSig $ canonicalVectors !! i
 
 notCanonicalVectorsMap :: (String,Int) -> Test.Framework.Test
-notCanonicalVectorsMap (s,i) = testCase ("Not canonical Sig " ++ (show i)) func
+notCanonicalVectorsMap (_,i) = testCase ("Not canonical Sig " ++ (show i)) func
     where func = testNotCanonicalSig $ notCanonicalVectors !! i
 
 testCanonicalSig :: String -> Assertion

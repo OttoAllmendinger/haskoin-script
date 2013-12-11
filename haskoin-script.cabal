@@ -6,8 +6,8 @@ version:               0.0.1
 synopsis:              Implementation of Bitcoin script parsing and evaluation
 description:         
     This package provides functions for parsing and evaluating bitcoin
-    transaction scripts. Functions are provided for building and deconstructing
-    all of the standard input and output script types. 
+    transaction scripts. Data types are provided for building and
+    deconstructing all of the standard input and output script types. 
 homepage:              http://github.com/plaprade/haskoin-script
 bug-reports:           http://github.com/plaprade/haskoin-script/issues
 stability:             experimental
@@ -26,8 +26,7 @@ source-repository head
 library
     exposed-modules:   Network.Haskoin.Script,
                        Network.Haskoin.Script.Arbitrary
-    other-modules:     Network.Haskoin.Script.Evaluator,
-                       Network.Haskoin.Script.Parser, 
+    other-modules:     Network.Haskoin.Script.Parser, 
                        Network.Haskoin.Script.SigHash
     build-depends:     base             == 4.6.*, 
                        binary           == 0.7.*, 
@@ -37,6 +36,7 @@ library
                        haskoin-crypto   == 0.0.*,
                        haskoin-util     == 0.0.*,
                        QuickCheck       == 2.6.*
+    ghc-options:       -Wall
 
 Test-Suite test-haskoin-script
     type:              exitcode-stdio-1.0
@@ -54,4 +54,5 @@ Test-Suite test-haskoin-script
                        test-framework-hunit       == 0.3.*, 
                        HUnit                      == 1.2.*
     hs-source-dirs:    . tests
+    ghc-options:       -Wall
 
