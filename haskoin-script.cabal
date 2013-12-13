@@ -38,6 +38,8 @@ library
 Test-Suite test-haskoin-script
     type:              exitcode-stdio-1.0
     main-is:           Main.hs
+    other-modules:     Network.Haskoin.Script.Tests,
+                       Units
     build-depends:     base                       == 4.6.*, 
                        binary                     == 0.7.*, 
                        bytestring                 == 0.10.*, 
