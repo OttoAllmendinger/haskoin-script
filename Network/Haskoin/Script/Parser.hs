@@ -40,15 +40,15 @@ import Network.Haskoin.Util
 -- output coins. 
 data ScriptOutput = 
       -- | Pay to a public key.
-      PayPK         { runPayPubKey      :: !PubKey }
+      PayPK         { getOutputPubKey   :: !PubKey }
       -- | Pay to a public key hash.
-    | PayPKHash     { runPayPubKeyHash  :: !Address }
+    | PayPKHash     { getOutputAddress  :: !Address }
       -- | Pay to multiple public keys.
-    | PayMulSig     { payMulSigKeys     :: ![PubKey]
-                    , payMulSigRequired :: !Int
+    | PayMulSig     { getOutputMulSigKeys     :: ![PubKey]
+                    , getOutputMulSigRequired :: !Int
                     }
       -- | Pay to a script hash.
-    | PayScriptHash { runPayScriptHash  :: !Address }
+    | PayScriptHash { getOutputAddress  :: !Address }
     deriving (Eq, Show)
 
 -- | Returns True if the script is a pay to public key output.
@@ -122,7 +122,7 @@ encodeOutput s = Script $ case s of
 -- | Tries to decode a 'ScriptOutput' from a 'Script'. This can fail if the
 -- script is not recognized as any of the standard output types.
 decodeOutput :: Script -> Either String ScriptOutput
-decodeOutput s = case runScript s of
+decodeOutput s = case scriptOps s of
     -- Pay to PubKey
     [OP_PUSHDATA bs, OP_CHECKSIG] -> PayPK <$> decodeToEither bs
     -- Pay to PubKey Hash
@@ -191,14 +191,14 @@ scriptSender s = case decodeInput s of
 -- trying to spend. 
 data ScriptInput = 
       -- | Spend the coins of a PayPK output.
-      SpendPK     { runSpendPK        :: !TxSignature }
+      SpendPK     { getInputSig       :: !TxSignature }
       -- | Spend the coins of a PayPKHash output.
-    | SpendPKHash { runSpendPKHashSig :: !TxSignature 
-                  , runSpendPKHashKey :: !PubKey
+    | SpendPKHash { getInputSig :: !TxSignature 
+                  , getInputKey :: !PubKey
                   }
       -- | Spend the coins of a PayMulSig output.
-    | SpendMulSig { runSpendMulSigs   :: ![TxSignature] 
-                  , runRequiredSigs   :: !Int
+    | SpendMulSig { getInputMulSigKeys     :: ![TxSignature] 
+                  , getInputMulSigRequired :: !Int
                   }
     deriving (Eq, Show)
 
@@ -234,7 +234,7 @@ encodeInput s = Script $ case s of
 -- | Decodes a 'ScriptInput' from a 'Script'. This function fails if the 
 -- script can not be parsed as a standard script input.
 decodeInput :: Script -> Either String ScriptInput
-decodeInput s = case runScript s of
+decodeInput s = case scriptOps s of
     [OP_PUSHDATA bs] -> SpendPK <$> decodeSig bs 
     [OP_PUSHDATA sig, OP_PUSHDATA p] -> 
         liftM2 SpendPKHash (decodeSig sig) (decodeToEither p)
@@ -269,7 +269,7 @@ data ScriptHashInput = ScriptHashInput
 -- 'ScriptOp' can can be used to build a 'Tx'.
 encodeScriptHash :: ScriptHashInput -> Script
 encodeScriptHash (ScriptHashInput i o) =
-    Script $ (runScript si) ++ [OP_PUSHDATA $ encodeScriptOps so]
+    Script $ (scriptOps si) ++ [OP_PUSHDATA $ encodeScriptOps so]
   where 
     si = encodeInput i
     so = encodeOutput o

@@ -57,7 +57,7 @@ data SigHash
     | SigSingle  { anyoneCanPay :: Bool }   
     -- | Unrecognized sighash types will decode to SigUnknown.
     | SigUnknown { anyoneCanPay :: Bool
-                 , runSigUnknown :: Word8 
+                 , getSigCode   :: Word8 
                  }
     deriving (Eq, Show)
 
