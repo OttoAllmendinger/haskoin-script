@@ -1,4 +1,4 @@
-module Haskoin.Script.SigHash
+module Network.Haskoin.Script.SigHash
 ( SigHash(..)
 , encodeSigHash32
 , isSigAll
@@ -12,43 +12,74 @@ module Haskoin.Script.SigHash
 , decodeCanonicalSig
 ) where
 
-import Control.Monad
-import Control.Applicative
+import Control.Monad (liftM2)
 
-import Data.Bits
-import Data.Maybe
-import Data.Binary
-import Data.Binary.Get
-import Data.Binary.Put
-import qualified Data.ByteString as BS
+import Data.Word (Word8)
+import Data.Bits (testBit, clearBit, setBit)
+import Data.Maybe (fromMaybe)
+import Data.Binary (Binary, get, put, getWord8, putWord8)
+import qualified Data.ByteString as BS 
+    ( ByteString
+    , index
+    , length
+    , last
+    , append
+    , pack
+    , splitAt
+    )
 
-import Haskoin.Crypto
-import Haskoin.Protocol
-import Haskoin.Util
+import Network.Haskoin.Crypto
+import Network.Haskoin.Protocol
+import Network.Haskoin.Util
 
-data SigHash = SigAll     { anyoneCanPay :: Bool }   
-             | SigNone    { anyoneCanPay :: Bool }     
-             | SigSingle  { anyoneCanPay :: Bool }   
-             | SigUnknown { anyoneCanPay :: Bool
-                          , runSigUnknown :: Word8 
-                          }
-             deriving (Eq, Show)
+-- | Data type representing the different ways a transaction can be signed.
+-- When producing a signature, a hash of the transaction is used as the message
+-- to be signed. The 'SigHash' parameter controls which parts of the
+-- transaction are used or ignored to produce the transaction hash. The idea is
+-- that if some part of a transaction is not used to produce the transaction
+-- hash, then you can change that part of the transaction after producing a
+-- signature without invalidating that signature.
+--
+-- If the anyoneCanPay flag is True, then only the current input is signed.
+-- Otherwise, all of the inputs of a transaction are signed. The default value
+-- for anyoneCanPay is False.
+data SigHash 
+    -- | Sign all of the outputs of a transaction (This is the default value).
+    -- Changing any of the outputs of the transaction will invalidate the
+    -- signature.
+    = SigAll     { anyoneCanPay :: Bool }   
+    -- | Sign none of the outputs of a transaction. This allows anyone to
+    -- change any of the outputs of the transaction.
+    | SigNone    { anyoneCanPay :: Bool }     
+    -- | Sign only the output corresponding the the current transaction input.
+    -- You care about your own output in the transaction but you don't
+    -- care about any of the other outputs.
+    | SigSingle  { anyoneCanPay :: Bool }   
+    -- | Unrecognized sighash types will decode to SigUnknown.
+    | SigUnknown { anyoneCanPay :: Bool
+                 , getSigCode   :: Word8 
+                 }
+    deriving (Eq, Show)
 
+-- | Returns True if the 'SigHash' has the value SigAll.
 isSigAll :: SigHash -> Bool
 isSigAll sh = case sh of
     SigAll _ -> True
     _ -> False
 
+-- | Returns True if the 'SigHash' has the value SigNone.
 isSigNone :: SigHash -> Bool
 isSigNone sh = case sh of
     SigNone _ -> True
     _ -> False
 
+-- | Returns True if the 'SigHash' has the value SigSingle.
 isSigSingle :: SigHash -> Bool
 isSigSingle sh = case sh of
     SigSingle _ -> True
     _ -> False
 
+-- | Returns True if the 'SigHash' has the value SigUnknown.
 isSigUnknown :: SigHash -> Bool
 isSigUnknown sh = case sh of
     SigUnknown _ _ -> True
@@ -70,11 +101,16 @@ instance Binary SigHash where
         SigSingle acp -> if acp then 0x83 else 0x03
         SigUnknown _ w -> w
 
+-- | Encodes a 'SigHash' to a 32 bit-long bytestring.
 encodeSigHash32 :: SigHash -> BS.ByteString
 encodeSigHash32 sh = encode' sh `BS.append` BS.pack [0,0,0]
 
--- Build hash that will be used for signing a transaction
-txSigHash :: Tx -> Script -> Int -> SigHash -> Hash256
+-- | Computes the hash that will be used for signing a transaction.
+txSigHash :: Tx      -- ^ Transaction to sign.
+          -> Script  -- ^ Output script that is being spent.
+          -> Int     -- ^ Index of the input that is being signed.
+          -> SigHash -- ^ What parts of the transaction should be signed.
+          -> Hash256 -- ^ Result hash to be signed.
 txSigHash tx out i sh = do
     let newIn = buildInputs (txIn tx) out i sh
     -- When SigSingle and input index > outputs, then sign integer 1
@@ -89,9 +125,10 @@ buildInputs txins out i sh
     | anyoneCanPay sh   = (txins !! i) { scriptInput = out } : []
     | isSigAll sh || isSigUnknown sh = single
     | otherwise         = map noSeq $ zip single [0..]
-    where empty  = map (\ti -> ti{ scriptInput = Script [] }) txins
-          single = updateIndex i empty $ \ti -> ti{ scriptInput = out }
-          noSeq (ti,j) = if i == j then ti else ti{ txInSequence = 0 }
+  where 
+    empty  = map (\ti -> ti{ scriptInput = Script [] }) txins
+    single = updateIndex i empty $ \ti -> ti{ scriptInput = out }
+    noSeq (ti,j) = if i == j then ti else ti{ txInSequence = 0 }
 
 -- Build transaction outputs for computing SigHashes
 buildOutputs :: [TxOut] -> Int -> SigHash -> Maybe [TxOut]
@@ -100,24 +137,30 @@ buildOutputs txos i sh
     | isSigNone sh = return []
     | i >= length txos = Nothing
     | otherwise = return $ buffer ++ [txos !! i]
-    where buffer = replicate i $ TxOut (-1) $ Script []
+  where 
+    buffer = replicate i $ TxOut (-1) $ Script []
 
--- Signatures in scripts contain the signature hash type byte
+-- | Data type representing a 'Signature' together with a 'SigHash'. The
+-- 'SigHash' is serialized as one byte at the end of a regular ECDSA
+-- 'Signature'. All signatures in transaction inputs are of type 'TxSignature'.
 data TxSignature = TxSignature 
     { txSignature :: Signature 
     , sigHashType :: SigHash
     } deriving (Eq, Show)
 
+-- | Serialize a 'TxSignature' to a ByteString.
 encodeSig :: TxSignature -> BS.ByteString
 encodeSig (TxSignature sig sh) = runPut' $ put sig >> put sh
 
+-- | Decode a 'TxSignature' from a ByteString.
 decodeSig :: BS.ByteString -> Either String TxSignature
 decodeSig bs = do
     let (h,l) = BS.splitAt (BS.length bs - 1) bs
     liftM2 TxSignature (decodeToEither h) (decodeToEither l)
 
 -- github.com/bitcoin/bitcoin/blob/master/src/script.cpp
--- from function IsCanonicalSignature
+-- | Decode a 'TxSignature' from a ByteString. This function will check if
+-- the signature is canonical and fail if it is not.
 decodeCanonicalSig :: BS.ByteString -> Either String TxSignature
 decodeCanonicalSig bs
     | len < 9 = Left "Non-canonical signature: too short"
@@ -146,8 +189,9 @@ decodeCanonicalSig bs
         && not (testBit (BS.index bs (fromIntegral rlen+7)) 7) =
         Left "Non-canonical signature: S value excessively padded"
     | otherwise = decodeSig bs
-    where len = fromIntegral $ BS.length bs
-          rlen = BS.index bs 3
-          slen = BS.index bs (fromIntegral rlen + 5)
-          hashtype = clearBit (BS.last bs) 7
+  where 
+    len = fromIntegral $ BS.length bs
+    rlen = BS.index bs 3
+    slen = BS.index bs (fromIntegral rlen + 5)
+    hashtype = clearBit (BS.last bs) 7
 

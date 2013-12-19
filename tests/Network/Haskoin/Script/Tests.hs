@@ -1,27 +1,29 @@
-module Haskoin.Script.Tests (tests) where
+module Network.Haskoin.Script.Tests (tests) where
 
-import Test.QuickCheck.Property hiding ((.&.))
-import Test.Framework
-import Test.Framework.Providers.QuickCheck2
+import Test.QuickCheck.Property (Property, (==>))
+import Test.Framework (Test, testGroup)
+import Test.Framework.Providers.QuickCheck2 (testProperty)
 
-import Control.Monad
-import Control.Applicative
+import Control.Applicative ((<$>))
 
-import Data.Bits
-import Data.Maybe
-import Data.Binary
-import Data.Binary.Get
-import Data.Binary.Put
-import qualified Data.ByteString as BS
+import Data.Bits (setBit, testBit)
+import Data.Binary (Word8)
+import qualified Data.ByteString as BS 
+    ( singleton
+    , length
+    , tail
+    , head
+    , pack
+    )
 
-import Haskoin.Script
-import Haskoin.Script.Arbitrary
-import Haskoin.Script.Evaluator
-import Haskoin.Crypto
-import Haskoin.Crypto.Arbitrary
-import Haskoin.Protocol
-import Haskoin.Protocol.Arbitrary
-import Haskoin.Util
+import Network.Haskoin.Protocol.Arbitrary ()
+import Network.Haskoin.Script.Arbitrary (ScriptOpInt(..))
+
+import Network.Haskoin.Script
+import Network.Haskoin.Script.Evaluator
+import Network.Haskoin.Crypto
+import Network.Haskoin.Protocol
+import Network.Haskoin.Util
 
 tests :: [Test]
 tests =
@@ -67,13 +69,14 @@ testSortMulSig out = case out of
     where check (PayMulSig ps _) 
               | length ps <= 1 = True
               | otherwise = snd $ foldl f (head ps,True) $ tail ps
+          check _ = False
           f (a,t) b | t && encode' a <= encode' b = (b,True)
                     | otherwise   = (b,False)
         
 {- Script SigHash -}
 
 testCanonicalSig :: TxSignature -> Bool
-testCanonicalSig ts@(TxSignature sig sh) 
+testCanonicalSig ts@(TxSignature _ sh) 
     | isSigUnknown sh = isLeft $ decodeCanonicalSig bs
     | otherwise       = isRight (decodeCanonicalSig bs) && 
                         isCanonicalHalfOrder (txSignature ts)
@@ -104,7 +107,7 @@ binTxSig :: TxSignature -> Bool
 binTxSig ts = (fromRight $ decodeSig $ encodeSig ts) == ts
 
 binTxSigCanonical :: TxSignature -> Bool
-binTxSigCanonical ts@(TxSignature sig sh) 
+binTxSigCanonical ts@(TxSignature _ sh) 
     | isSigUnknown sh = isLeft $ decodeCanonicalSig $ encodeSig ts
     | otherwise = (fromRight $ decodeCanonicalSig $ encodeSig ts) == ts
 

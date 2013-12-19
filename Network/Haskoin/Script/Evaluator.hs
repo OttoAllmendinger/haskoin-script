@@ -1,10 +1,10 @@
 {-# LANGUAGE LambdaCase #-}
-module Haskoin.Script.Evaluator (evalScript, evalScriptTest) where
+module Network.Haskoin.Script.Evaluator (evalScript, evalScriptTest) where
 
-import Haskoin.Util
-import Haskoin.Crypto
-import Haskoin.Protocol
-import Haskoin.Script.Parser
+import Network.Haskoin.Util
+import Network.Haskoin.Crypto
+import Network.Haskoin.Protocol
+import Network.Haskoin.Script.Parser
 
 import Debug.Trace (trace)
 
@@ -321,8 +321,8 @@ evalAll = do
 runProgram :: [ScriptOp] -> Either EvalError ((), Program)
 runProgram i = runIdentity . runErrorT . runStateT evalAll $ (i, [], [])
 
-evalScript :: [ScriptOp] -> Bool
-evalScript i = case runProgram i of
+evalScript :: Script -> Bool
+evalScript script = case runProgram $ scriptOps script of
     Left _ -> False
     Right ((), (_, stack, _)) -> case stack of
         (x:xs)  -> isTrue x
