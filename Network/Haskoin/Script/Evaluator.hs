@@ -1,10 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 module Network.Haskoin.Script.Evaluator (evalScript, evalScriptTest) where
 
-import Network.Haskoin.Util
-import Network.Haskoin.Crypto
 import Network.Haskoin.Protocol
-import Network.Haskoin.Script.Parser
 
 import Debug.Trace (trace)
 
@@ -48,20 +45,20 @@ isDisabled op = case runProgram [op] of
     _ -> False
 
 
-isTrue :: ScriptOp -> Bool
-isTrue OP_0 = False
-isTrue _ = True
+opToBool :: ScriptOp -> Bool
+opToBool OP_0 = False
+opToBool _ = True
 
-boolOp :: Bool -> ScriptOp
-boolOp False = OP_0
-boolOp True = OP_1
+boolToOp :: Bool -> ScriptOp
+boolToOp False = OP_0
+boolToOp True = OP_1
 
 
-toNumber :: Int -> ScriptOp
-toNumber x = undefined -- TODO
+intToOp :: Int -> ScriptOp
+intToOp x = undefined -- TODO
 
-fromNumber :: ScriptOp -> Int
-fromNumber op = undefined -- TODO
+opToInt :: ScriptOp -> Int
+opToInt op = undefined -- TODO
 
 opSize :: ScriptOp -> Int
 opSize op = undefined -- TODO
@@ -166,11 +163,31 @@ tStack6 :: (ScriptOp -> ScriptOp -> ScriptOp ->
 tStack6 f = f <$> popStack <*> popStack <*> popStack
               <*> popStack <*> popStack <*> popStack >>= prependStack
 
+tStack1L :: (ScriptOp -> a) -> (b -> ScriptOp) ->
+            (a -> b) -> ProgramTransition ()
+tStack1L p q f = tStack1 $ return . q . f . p
+
+
+tStack2L :: (ScriptOp -> a) -> (b -> ScriptOp) ->
+            (a -> a -> b) -> ProgramTransition ()
+tStack2L p q f = tStack2 $ \a b -> return $ q $ f (p a) (p b)
+
+
+tStack3L :: (ScriptOp -> a) -> (b -> ScriptOp) ->
+            (a -> a -> a -> b) -> ProgramTransition ()
+tStack3L p q f = tStack3 $ \a b c -> return $ q $ f (p a) (p b) (p c)
+
+
+
 arith1 :: (Int -> Int) -> ProgramTransition ()
-arith1 f = tStack1 $ return . toNumber . f . fromNumber
+arith1 = tStack1L opToInt intToOp
 
 arith2 :: (Int -> Int -> Int) -> ProgramTransition ()
-arith2 f = tStack2 $ \a b -> return $ toNumber $ f (fromNumber a) (fromNumber b)
+arith2 = tStack2L opToInt intToOp
+
+bool2 :: (Bool -> Bool -> Bool) -> ProgramTransition ()
+bool2 = tStack2L opToBool boolToOp
+
 
 stackError :: ProgramTransition a
 stackError = getOp >>= throwError . StackError
@@ -215,12 +232,12 @@ evalIf cond = case cond of
 
 
 eval OP_NOP     = return ()
-eval OP_IF      = popStack >>= evalIf . isTrue
-eval OP_NOTIF   = popStack >>= evalIf . not . isTrue
+eval OP_IF      = popStack >>= evalIf . opToBool
+eval OP_NOTIF   = popStack >>= evalIf . not . opToBool
 eval OP_ELSE    = throwError $ EvalError "OP_ELSE outside OP_IF"
 eval OP_ENDIF   = throwError $ EvalError "OP_ENDIF outside OP_IF"
 
-eval OP_VERIFY = isTrue <$> popStack >>= \case
+eval OP_VERIFY = opToBool <$> popStack >>= \case
     False -> throwError $ EvalError "OP_VERIFY failed"
     True  -> return ()
 
@@ -233,13 +250,13 @@ eval OP_RETURN = throwError $ EvalError "explicit OP_RETURN"
 eval OP_TOALTSTACK = popStack >>= pushAltStack
 eval OP_FROMALTSTACK = popAltStack >>= pushStack
 eval OP_IFDUP   = tStack1 $ \case OP_0 -> [] ; a -> [a, a]
-eval OP_DEPTH   = getStack >>= pushStack . toNumber . length
+eval OP_DEPTH   = getStack >>= pushStack . intToOp . length
 eval OP_DROP    = void popStack
 eval OP_DUP     = tStack1 $ \a -> [a, a]
 eval OP_NIP     = tStack2 $ \a b -> [a]
 eval OP_OVER    = tStack2 $ \a b -> [a, b, a]
-eval OP_PICK    = fromNumber <$> popStack >>= (pickStack False)
-eval OP_ROLL    = fromNumber <$> popStack >>= (pickStack True)
+eval OP_PICK    = opToInt <$> popStack >>= (pickStack False)
+eval OP_ROLL    = opToInt <$> popStack >>= (pickStack True)
 eval OP_ROT     = tStack3 $ \a b c -> [c, b, a]
 eval OP_SWAP    = tStack2 $ \a b -> [b, a]
 eval OP_TUCK    = tStack2 $ \a b -> [b, a, b]
@@ -256,7 +273,7 @@ eval OP_CAT     = disabled
 eval OP_SUBSTR  = disabled
 eval OP_LEFT    = disabled
 eval OP_RIGHT   = disabled
-eval OP_SIZE    = (opSize <$> popStack) >>= pushStack . toNumber
+eval OP_SIZE    = (opSize <$> popStack) >>= pushStack . intToOp
 
 -- Bitwise Logic
 
@@ -284,22 +301,19 @@ eval OP_DIV     = disabled
 eval OP_MOD     = disabled
 eval OP_LSHIFT  = disabled
 eval OP_RSHIFT  = disabled
-eval OP_BOOLAND     = tStack2 $ \a b -> return $ boolOp ((isTrue a) && (isTrue b))
-eval OP_BOOLOR      = tStack2 $ \a b -> return $ boolOp ((isTrue a) || (isTrue b))
-eval OP_NUMEQUAL    = tStack2 $ \a b -> return $ boolOp $ a == b
+eval OP_BOOLAND     = bool2 (&&)
+eval OP_BOOLOR      = bool2 (||)
+eval OP_NUMEQUAL    = bool2 (==)
 eval OP_NUMEQUALVERIFY = eval OP_NUMEQUAL >> eval OP_VERIFY
--- eval OP_NUMNOTEQUAL = tStack2 $ \a b -> return $ boolOp $ a /= b
--- eval OP_LESSTHAN    = tStack2 $ \a b -> return $ boolOp $ a < b
--- eval OP_GREATERTHAN = tStack2 $ \a b -> return $ boolOp $ a > b
--- eval OP_LESSTHANOREQUAL     = tStack2 $ \a b -> return $ boolOp $ a <= b
--- eval OP_GREATERTHANOREQUAL  = tStack2 $ \a b -> return $ boolOp $ a >= b
--- eval OP_MIN     = tStack2 $ \a b -> return $ fromNumber . min (toNumber a) (toNumber b)
+eval OP_NUMNOTEQUAL         = tStack2L opToInt boolToOp (/=)
+eval OP_LESSTHAN            = tStack2L opToInt boolToOp (<)
+eval OP_GREATERTHAN         = tStack2L opToInt boolToOp (>)
+eval OP_LESSTHANOREQUAL     = tStack2L opToInt boolToOp (<=)
+eval OP_GREATERTHANOREQUAL  = tStack2L opToInt boolToOp (>=)
+eval OP_MIN     = tStack2L opToInt intToOp min
+eval OP_MAX     = tStack2L opToInt intToOp max
+eval OP_WITHIN  = tStack3L opToInt boolToOp $ \a x y -> (x <= a) && (a < y)
 
-{-
-eval OP_BOOLOR  = tStack2 $ f where
-    f OP_1 _ = [OP_1]
-    f _ OP_1 = [OP_1]
--}
 
 eval op | isConstant op = pushStack op
         | otherwise     = throwError $ EvalError $ "unknown op " ++ show op
@@ -325,7 +339,7 @@ evalScript :: Script -> Bool
 evalScript script = case runProgram $ scriptOps script of
     Left _ -> False
     Right ((), (_, stack, _)) -> case stack of
-        (x:xs)  -> isTrue x
+        (x:xs)  -> opToBool x
         []      -> False
 
 
