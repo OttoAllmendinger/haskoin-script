@@ -1,8 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 module Network.Haskoin.Script.Evaluator (evalScript, evalScriptTest) where
 
-import Network.Haskoin.Protocol
-
 import Debug.Trace (trace)
 
 import Control.Monad.State
@@ -10,6 +8,13 @@ import Control.Monad.Error
 import Control.Monad.Identity
 
 import Control.Applicative ((<$>), (<*>))
+
+import qualified Data.ByteString as BS 
+
+
+
+import Network.Haskoin.Crypto
+import Network.Haskoin.Protocol
 
 
 -- see https://github.com/bitcoin/bitcoin/blob/master/src/script.cpp EvalScript
@@ -54,11 +59,21 @@ boolToOp False = OP_0
 boolToOp True = OP_1
 
 
+opToInt :: ScriptOp -> Int
+opToInt op = undefined -- TODO
+
 intToOp :: Int -> ScriptOp
 intToOp x = undefined -- TODO
 
-opToInt :: ScriptOp -> Int
-opToInt op = undefined -- TODO
+
+
+opToBs :: ScriptOp -> BS.ByteString
+opToBs op = undefined
+
+bsToOp :: BS.ByteString -> ScriptOp
+bsToOp op = undefined
+
+
 
 opSize :: ScriptOp -> Int
 opSize op = undefined -- TODO
@@ -77,12 +92,14 @@ instance Error EvalError where
 instance Show EvalError where
     show (EvalError m) = m
     show (StackError op) = (show op) ++ ": Stack Error"
+    show (DisabledOp op) = (show op) ++ ": disabled"
 
 type Instructions = [ScriptOp]
 type AltStack = [ScriptOp]
 type Stack = [ScriptOp]
+type HashCode = [ScriptOp] -- the code that is verified by OP_CHECKSIG
 
-type Program = (Instructions, Stack, AltStack)
+type Program = (Instructions, Stack, AltStack, HashCode)
 
 type ProgramState = ErrorT EvalError Identity
 
@@ -93,18 +110,18 @@ type ProgramTransition a = StateT Program ProgramState a
 
 getOp :: ProgramTransition ScriptOp
 getOp = get >>= \case
-    ([], _, _) -> throwError $ EvalError "getOp: empty script"
-    (i:_, _, _) -> return i
+    ([], _, _, _) -> throwError $ EvalError "getOp: empty script"
+    (i:_, _, _, _) -> return i
 
 popOp :: ProgramTransition ScriptOp
 popOp = get >>= \case
-    ([], _, _) -> throwError $ EvalError "popOp: empty script"
-    (i:is, s, a) -> put (is, s, a) >> return i
+    ([], _, _, _) -> throwError $ EvalError "popOp: empty script"
+    (i:is, s, a, h) -> put (is, s, a, h) >> return i
 
 -- Stack Primitives
 
 getStack :: ProgramTransition Stack
-getStack = get >>= \(_, s, _) -> return s
+getStack = get >>= \(_, s, _, _) -> return s
 
 withStack :: ProgramTransition Stack
 withStack = getStack >>= \case
@@ -112,7 +129,7 @@ withStack = getStack >>= \case
     s  -> return s
 
 putStack :: Stack -> ProgramTransition ()
-putStack stack = get >>= \(i, _, a) -> put (i, stack, a)
+putStack stack = get >>= \(i, _, a, h) -> put (i, stack, a, h)
 
 prependStack :: Stack -> ProgramTransition ()
 prependStack s = getStack >>= \s' -> putStack $ s ++ s'
@@ -139,6 +156,12 @@ pickStack remove n = do
     when remove $ putStack $ (take (n-1) stack) ++ (drop n stack)
     pushStack v
 
+
+pushHashOp :: ScriptOp -> ProgramTransition ()
+pushHashOp op = get >>= \(i, s, a, h) -> put (i, s, a, op:h)
+
+clearHash :: ProgramTransition ()
+clearHash = get >>= \(i, s, a, h) -> put (i, s, a, [])
 
 -- transformStack :: (Stack -> Stack) -> ProgramTransition ()
 -- transformStack f = (getStack >>= putStack . f)
@@ -198,12 +221,12 @@ disabled = getOp >>= throwError . DisabledOp
 -- AltStack Primitives
 
 pushAltStack :: ScriptOp -> ProgramTransition ()
-pushAltStack op = get >>= \(i, s, a) -> put (i, s, op:a)
+pushAltStack op = get >>= \(i, s, a, h) -> put (i, s, op:a, h)
 
 popAltStack :: ProgramTransition ScriptOp
 popAltStack = get >>= \case
-    (i, s, a:as) -> put (i, s, as) >> return a
-    (_, _, [])   -> throwError $ EvalError "popAltStack: empty stack"
+    (i, s, a:as, h) -> put (i, s, as, h) >> return a
+    (_, _, [], _)   -> throwError $ EvalError "popAltStack: empty stack"
 
 
 
@@ -224,7 +247,7 @@ evalIf cond = case cond of
             op <- getOp
             unless (op == stop) $ do
                 when evalOps $ (eval op)
-                popOp
+                void popOp
                 doUntil stop evalOps
 
         skipUntil stop = doUntil stop False
@@ -314,6 +337,21 @@ eval OP_MIN     = tStack2L opToInt intToOp min
 eval OP_MAX     = tStack2L opToInt intToOp max
 eval OP_WITHIN  = tStack3L opToInt boolToOp $ \a x y -> (x <= a) && (a < y)
 
+eval OP_RIPEMD160 = tStack1 $ return . bsToOp . hash160BS . opToBs
+eval OP_SHA1 = undefined  -- TODO: add sha160 to Network.Haskoin.Crypto.Hash
+-- eval OP_SHA1 = tStack1 $ return . bsToOp . hashSha160BS . opToBs
+
+eval OP_SHA256 = tStack1 $ return . bsToOp . hash256BS . opToBs
+eval OP_HASH160 = tStack1 $ return . bsToOp . hash160BS . hash256BS . opToBs
+eval OP_HASH256 = tStack1 $ return . bsToOp . doubleHash256BS  . opToBs
+eval OP_CODESEPARATOR = clearHash
+eval OP_CHECKSIG = undefined
+eval OP_CHECKMULTISIG = popStack >>= checkMultiSig . opToInt
+    where  checkMultiSig 0 = return ()
+           checkMultiSig x = eval OP_CHECKSIG >> checkMultiSig (x - 1)
+
+eval OP_CHECKSIGVERIFY      = eval OP_CHECKSIG      >> eval OP_VERIFY
+eval OP_CHECKMULTISIGVERIFY = eval OP_CHECKMULTISIG >> eval OP_VERIFY
 
 eval op | isConstant op = pushStack op
         | otherwise     = throwError $ EvalError $ "unknown op " ++ show op
@@ -322,30 +360,30 @@ eval op | isConstant op = pushStack op
 
 evalAll :: ProgramTransition ()
 evalAll = do
-    (i, s, a) <- get
+    (i, s, a, h) <- get
     case i of
         [] -> return ()
         (op:ops) -> do
             eval op
-            popOp
+            popOp >>= pushHashOp
             evalAll
 
 -- exported functions
 
 runProgram :: [ScriptOp] -> Either EvalError ((), Program)
-runProgram i = runIdentity . runErrorT . runStateT evalAll $ (i, [], [])
+runProgram i = runIdentity . runErrorT . runStateT evalAll $ (i, [], [], [])
 
 evalScript :: Script -> Bool
 evalScript script = case runProgram $ scriptOps script of
     Left _ -> False
-    Right ((), (_, stack, _)) -> case stack of
-        (x:xs)  -> opToBool x
+    Right ((), (_, stack, _, _)) -> case stack of
+        (x:_)  -> opToBool x
         []      -> False
 
 
 evalScriptTest :: IO ()
 evalScriptTest = do
-    let initState = ([OP_1, OP_0, OP_BOOLAND], [], [])
+    let initState = ([OP_1, OP_0, OP_BOOLAND], [], [], [])
     let result = runIdentity . runErrorT . runStateT evalAll $ initState
 
     case result of
