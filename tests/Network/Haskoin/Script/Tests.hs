@@ -122,5 +122,7 @@ testSigHashOne tx s acp = not (null $ txIn tx) ==>
 
 {- Script Evaluation -}
 
+rejectSignature _ _ = False
+
 testScriptEvalFalse :: Script -> Bool
-testScriptEvalFalse sc = not $ evalScript sc
+testScriptEvalFalse sc = not $ evalScript sc rejectSignature

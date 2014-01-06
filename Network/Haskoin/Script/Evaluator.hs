@@ -44,8 +44,11 @@ isConstant op = case op of
     _ -> False
 
 
+rejectSignature :: SigCheck
+rejectSignature _ _ = False
+
 isDisabled :: ScriptOp -> Bool
-isDisabled op = case runProgram [op] of
+isDisabled op = case runProgram [op] rejectSignature of
     Left (DisabledOp _) -> True
     _ -> False
 
@@ -97,31 +100,45 @@ instance Show EvalError where
 type Instructions = [ScriptOp]
 type AltStack = [ScriptOp]
 type Stack = [ScriptOp]
-type HashCode = [ScriptOp] -- the code that is verified by OP_CHECKSIG
+type HashOps = [ScriptOp] -- the code that is verified by OP_CHECKSIG
 
-type Program = (Instructions, Stack, AltStack, HashCode)
+-- type Program = (Instructions, Stack, AltStack, HashCode)
+
+data Program = Program {
+    instructions :: Instructions,
+    stack        :: Stack,
+    altStack     :: AltStack,
+    hashOps      :: HashOps,
+    sigCheck     :: SigCheck
+}
+
+instance Show Program where
+    show p = show $ instructions p
 
 type ProgramState = ErrorT EvalError Identity
 
 type ProgramTransition a = StateT Program ProgramState a
 
+type SigCheck = PubKey -> [ScriptOp] -> Bool
+
 
 -- Script Primitives
 
 getOp :: ProgramTransition ScriptOp
-getOp = get >>= \case
-    ([], _, _, _) -> throwError $ EvalError "getOp: empty script"
-    (i:_, _, _, _) -> return i
+getOp = instructions <$> get >>= \case
+    [] -> throwError $ EvalError "getOp: empty script"
+    (i:_) -> return i
 
 popOp :: ProgramTransition ScriptOp
-popOp = get >>= \case
-    ([], _, _, _) -> throwError $ EvalError "popOp: empty script"
-    (i:is, s, a, h) -> put (is, s, a, h) >> return i
+popOp = get >>= \prog -> case instructions prog of
+    [] -> throwError $ EvalError "popOp: empty script"
+    -- (i:is) -> put (is, s, a, h) >> return i
+    (i:is) -> put prog { instructions = is } >> return i
 
 -- Stack Primitives
 
 getStack :: ProgramTransition Stack
-getStack = get >>= \(_, s, _, _) -> return s
+getStack = stack <$> get
 
 withStack :: ProgramTransition Stack
 withStack = getStack >>= \case
@@ -129,7 +146,7 @@ withStack = getStack >>= \case
     s  -> return s
 
 putStack :: Stack -> ProgramTransition ()
-putStack stack = get >>= \(i, _, a, h) -> put (i, stack, a, h)
+putStack stack = get >>= \p -> put p { stack = stack }
 
 prependStack :: Stack -> ProgramTransition ()
 prependStack s = getStack >>= \s' -> putStack $ s ++ s'
@@ -158,10 +175,13 @@ pickStack remove n = do
 
 
 pushHashOp :: ScriptOp -> ProgramTransition ()
-pushHashOp op = get >>= \(i, s, a, h) -> put (i, s, a, op:h)
+pushHashOp op = get >>= \p -> put p { hashOps = op:(hashOps p) }
 
-clearHash :: ProgramTransition ()
-clearHash = get >>= \(i, s, a, h) -> put (i, s, a, [])
+getHashOps :: ProgramTransition HashOps
+getHashOps = hashOps <$> get
+
+clearHashOps :: ProgramTransition ()
+clearHashOps = get >>= \p -> put p { hashOps = [] }
 
 -- transformStack :: (Stack -> Stack) -> ProgramTransition ()
 -- transformStack f = (getStack >>= putStack . f)
@@ -221,12 +241,12 @@ disabled = getOp >>= throwError . DisabledOp
 -- AltStack Primitives
 
 pushAltStack :: ScriptOp -> ProgramTransition ()
-pushAltStack op = get >>= \(i, s, a, h) -> put (i, s, op:a, h)
+pushAltStack op = get >>= \p -> put p { altStack = op:(altStack p) }
 
 popAltStack :: ProgramTransition ScriptOp
-popAltStack = get >>= \case
-    (i, s, a:as, h) -> put (i, s, as, h) >> return a
-    (_, _, [], _)   -> throwError $ EvalError "popAltStack: empty stack"
+popAltStack = get >>= \p -> case altStack p of
+    a:as -> put p { altStack = as } >> return a
+    []   -> throwError $ EvalError "popAltStack: empty stack"
 
 
 
@@ -344,7 +364,7 @@ eval OP_SHA1 = undefined  -- TODO: add sha160 to Network.Haskoin.Crypto.Hash
 eval OP_SHA256 = tStack1 $ return . bsToOp . hash256BS . opToBs
 eval OP_HASH160 = tStack1 $ return . bsToOp . hash160BS . hash256BS . opToBs
 eval OP_HASH256 = tStack1 $ return . bsToOp . doubleHash256BS  . opToBs
-eval OP_CODESEPARATOR = clearHash
+eval OP_CODESEPARATOR = clearHashOps
 eval OP_CHECKSIG = undefined
 eval OP_CHECKMULTISIG = popStack >>= checkMultiSig . opToInt
     where  checkMultiSig 0 = return ()
@@ -360,8 +380,7 @@ eval op | isConstant op = pushStack op
 
 evalAll :: ProgramTransition ()
 evalAll = do
-    (i, s, a, h) <- get
-    case i of
+    instructions <$> get >>= \case
         [] -> return ()
         (op:ops) -> do
             eval op
@@ -370,20 +389,34 @@ evalAll = do
 
 -- exported functions
 
-runProgram :: [ScriptOp] -> Either EvalError ((), Program)
-runProgram i = runIdentity . runErrorT . runStateT evalAll $ (i, [], [], [])
+runProgram :: [ScriptOp] -> SigCheck -> Either EvalError ((), Program)
+runProgram i sigCheck =
+    runIdentity . runErrorT . runStateT evalAll $ Program {
+        instructions = i,
+        stack = [],
+        altStack = [],
+        hashOps = [],
+        sigCheck = sigCheck
+    }
 
-evalScript :: Script -> Bool
-evalScript script = case runProgram $ scriptOps script of
+evalScript :: Script -> SigCheck -> Bool
+evalScript script sigCheck = case runProgram (scriptOps script) sigCheck of
     Left _ -> False
-    Right ((), (_, stack, _, _)) -> case stack of
+    Right ((), prog) -> case stack prog of
         (x:_)  -> opToBool x
-        []      -> False
+        []     -> False
 
 
 evalScriptTest :: IO ()
 evalScriptTest = do
-    let initState = ([OP_1, OP_0, OP_BOOLAND], [], [], [])
+    let initState = Program {
+        instructions = [OP_1, OP_0, OP_BOOLAND],
+        stack = [],
+        altStack = [],
+        hashOps = [],
+        sigCheck = rejectSignature
+    }
+
     let result = runIdentity . runErrorT . runStateT evalAll $ initState
 
     case result of
