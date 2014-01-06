@@ -146,7 +146,7 @@ withStack = getStack >>= \case
     s  -> return s
 
 putStack :: Stack -> ProgramTransition ()
-putStack stack = get >>= \p -> put p { stack = stack }
+putStack stack = modify $ \p -> p { stack = stack }
 
 prependStack :: Stack -> ProgramTransition ()
 prependStack s = getStack >>= \s' -> putStack $ s ++ s'
@@ -175,13 +175,13 @@ pickStack remove n = do
 
 
 pushHashOp :: ScriptOp -> ProgramTransition ()
-pushHashOp op = get >>= \p -> put p { hashOps = op:(hashOps p) }
+pushHashOp op = modify $ \p -> p { hashOps = op:(hashOps p) }
 
 getHashOps :: ProgramTransition HashOps
 getHashOps = hashOps <$> get
 
 clearHashOps :: ProgramTransition ()
-clearHashOps = get >>= \p -> put p { hashOps = [] }
+clearHashOps = modify $ \p -> p { hashOps = [] }
 
 -- transformStack :: (Stack -> Stack) -> ProgramTransition ()
 -- transformStack f = (getStack >>= putStack . f)
@@ -241,7 +241,7 @@ disabled = getOp >>= throwError . DisabledOp
 -- AltStack Primitives
 
 pushAltStack :: ScriptOp -> ProgramTransition ()
-pushAltStack op = get >>= \p -> put p { altStack = op:(altStack p) }
+pushAltStack op = modify $ \p -> p { altStack = op:(altStack p) }
 
 popAltStack :: ProgramTransition ScriptOp
 popAltStack = get >>= \p -> case altStack p of
