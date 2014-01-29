@@ -95,10 +95,10 @@ sortMulSig out = case out of
 encodeOutput :: ScriptOutput -> Script
 encodeOutput s = Script $ case s of
     -- Pay to PubKey
-    (PayPK k) -> [OP_PUSHDATA $ encode' k, OP_CHECKSIG]
+    (PayPK k) -> [opPushData $ encode' k, OP_CHECKSIG]
     -- Pay to PubKey Hash Address
     (PayPKHash a) -> case a of
-        (PubKeyAddress h) -> [ OP_DUP, OP_HASH160, OP_PUSHDATA $ encode' h
+        (PubKeyAddress h) -> [ OP_DUP, OP_HASH160, opPushData $ encode' h
                              , OP_EQUALVERIFY, OP_CHECKSIG 
                              ] 
         (ScriptAddress _) -> 
@@ -108,13 +108,13 @@ encodeOutput s = Script $ case s of
       | r <= length ps ->
         let opM = intToScriptOp r
             opN = intToScriptOp $ length ps
-            keys = map (OP_PUSHDATA . encode') ps
+            keys = map (opPushData . encode') ps
             in opM : keys ++ [opN, OP_CHECKMULTISIG]
       | otherwise -> error "encodeOutput: PayMulSig r must be <= than pkeys"
     -- Pay to Script Hash Address
     (PayScriptHash a) -> case a of
         (ScriptAddress h) -> [ OP_HASH160
-                             , OP_PUSHDATA $ encode' h, OP_EQUAL
+                             , opPushData $ encode' h, OP_EQUAL
                              ]
         (PubKeyAddress _) -> 
             error "encodeOutput: PubKeyAddress is invalid in PayScriptHash"
@@ -124,12 +124,12 @@ encodeOutput s = Script $ case s of
 decodeOutput :: Script -> Either String ScriptOutput
 decodeOutput s = case scriptOps s of
     -- Pay to PubKey
-    [OP_PUSHDATA bs, OP_CHECKSIG] -> PayPK <$> decodeToEither bs
+    [OP_PUSHDATA bs _, OP_CHECKSIG] -> PayPK <$> decodeToEither bs
     -- Pay to PubKey Hash
-    [OP_DUP, OP_HASH160, OP_PUSHDATA bs, OP_EQUALVERIFY, OP_CHECKSIG] -> 
+    [OP_DUP, OP_HASH160, OP_PUSHDATA bs _, OP_EQUALVERIFY, OP_CHECKSIG] -> 
         (PayPKHash . PubKeyAddress) <$> decodeToEither bs
     -- Pay to Script Hash
-    [OP_HASH160, OP_PUSHDATA bs, OP_EQUAL] -> 
+    [OP_HASH160, OP_PUSHDATA bs _, OP_EQUAL] -> 
         (PayScriptHash . ScriptAddress) <$> decodeToEither bs
     -- Pay to MultiSig Keys
     _ -> matchPayMulSig s
@@ -144,7 +144,7 @@ matchPayMulSig (Script ops) = case splitAt (length ops - 2) ops of
             else Left "matchPayMulSig: Invalid M or N parameters"
     _ -> Left "matchPayMulSig: script did not match output template"
   where 
-    go (OP_PUSHDATA bs:xs) = liftM2 (:) (decodeToEither bs) (go xs)
+    go (OP_PUSHDATA bs _:xs) = liftM2 (:) (decodeToEither bs) (go xs)
     go [] = return []
     go  _ = Left "matchPayMulSig: invalid multisig opcode"
 
@@ -221,13 +221,13 @@ isSpendMulSig _ = False
 -- 'ScriptOp' can can be used to build a 'Tx'.
 encodeInput :: ScriptInput -> Script
 encodeInput s = Script $ case s of
-    SpendPK ts        -> [ OP_PUSHDATA $ encodeSig ts ]
-    SpendPKHash ts p  -> [ OP_PUSHDATA $ encodeSig ts
-                         , OP_PUSHDATA $ encode' p
+    SpendPK ts        -> [ opPushData $ encodeSig ts ]
+    SpendPKHash ts p  -> [ opPushData $ encodeSig ts
+                         , opPushData $ encode' p
                          ]
     SpendMulSig ts r 
         | length ts <= 16 && r >= 1 && r <= 16 ->
-            let sigs = map (OP_PUSHDATA . encodeSig) ts
+            let sigs = map (opPushData . encodeSig) ts
                 in OP_0 : sigs ++ replicate (r - length ts) OP_0
         | otherwise -> error "SpendMulSig: Bad multisig parameters"
 
@@ -235,8 +235,8 @@ encodeInput s = Script $ case s of
 -- script can not be parsed as a standard script input.
 decodeInput :: Script -> Either String ScriptInput
 decodeInput s = case scriptOps s of
-    [OP_PUSHDATA bs] -> SpendPK <$> decodeSig bs 
-    [OP_PUSHDATA sig, OP_PUSHDATA p] -> 
+    [OP_PUSHDATA bs _] -> SpendPK <$> decodeSig bs 
+    [OP_PUSHDATA sig _, OP_PUSHDATA p _] -> 
         liftM2 SpendPKHash (decodeSig sig) (decodeToEither p)
     (OP_0 : xs) -> matchSpendMulSig $ Script xs
     _ -> Left "decodeInput: Script did not match input templates"
@@ -245,7 +245,7 @@ matchSpendMulSig :: Script -> Either String ScriptInput
 matchSpendMulSig (Script ops) = 
     liftM2 SpendMulSig (go ops) (return $ length ops)
   where 
-    go (OP_PUSHDATA bs:xs) = liftM2 (:) (decodeSig bs) (go xs)
+    go (OP_PUSHDATA bs _:xs) = liftM2 (:) (decodeSig bs) (go xs)
     go (OP_0:xs)
         | all (== OP_0) xs = return []
         | otherwise = Left "matchSpendMulSig: invalid opcode after OP_0"
@@ -269,7 +269,7 @@ data ScriptHashInput = ScriptHashInput
 -- 'ScriptOp' can can be used to build a 'Tx'.
 encodeScriptHash :: ScriptHashInput -> Script
 encodeScriptHash (ScriptHashInput i o) =
-    Script $ (scriptOps si) ++ [OP_PUSHDATA $ encodeScriptOps so]
+    Script $ (scriptOps si) ++ [opPushData $ encodeScriptOps so]
   where 
     si = encodeInput i
     so = encodeOutput o
@@ -278,7 +278,7 @@ encodeScriptHash (ScriptHashInput i o) =
 -- if the script can not be parsed as a script hash input.
 decodeScriptHash :: Script -> Either String ScriptHashInput
 decodeScriptHash (Script ops) = case splitAt (length ops - 1) ops of
-    (is,[OP_PUSHDATA bs]) -> 
+    (is,[OP_PUSHDATA bs _]) -> 
         ScriptHashInput <$> (decodeInput $ Script is) 
                         <*> (decodeOutput =<< decodeScriptOps bs)
     _ -> Left "decodeScriptHash: Script did not match input template"
