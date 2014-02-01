@@ -24,8 +24,7 @@ library
     exposed-modules:   Network.Haskoin.Script,
                        Network.Haskoin.Script.Arbitrary
     other-modules:     Network.Haskoin.Script.Parser, 
-                       Network.Haskoin.Script.SigHash,
-                       Network.Haskoin.Script.Merkle
+                       Network.Haskoin.Script.SigHash
     build-depends:     base             >= 4.6  && < 4.7, 
                        binary           >= 0.7  && < 0.8, 
                        bytestring       >= 0.10 && < 0.11, 

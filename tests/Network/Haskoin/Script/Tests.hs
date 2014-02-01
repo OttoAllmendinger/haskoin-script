@@ -43,12 +43,6 @@ tests =
         , testProperty "decodeCanonical . encode TxSignature" binTxSigCanonical
         , testProperty "Testing txSigHash with SigSingle" testSigHashOne
         ]
-    , testGroup "Merkle Trees"
-        [ testProperty "Width of tree at maxmum height = 1" testTreeWidth
-        , testProperty "Width of tree at height 0 is # txns" testBaseWidth
-        , testProperty "extract . build partial merkle tree" buildExtractTree
-        --, testProperty "extract matches of a partial merkle tree" testExtractMatches
-        ]
     ]
 
 {- Script Parser -}
@@ -120,27 +114,4 @@ testSigHashOne tx s acp = not (null $ txIn tx) ==>
         then res == (setBit 0 248)
         else res /= (setBit 0 248)
     where res = txSigHash tx s (length (txIn tx) - 1) (SigSingle acp)
-
-{- Script SigHash -}
-
-testTreeWidth :: Int -> Property
-testTreeWidth i = i > 0 ==> calcTreeWidth i (calcTreeHeight i) == 1
-
-testBaseWidth :: Int -> Property
-testBaseWidth i = i > 0 ==> calcTreeWidth i 0 == i
-
-buildExtractTree :: [(Hash256,Bool)] -> Property
-buildExtractTree txs = not (null txs) ==>
-    r == (buildMerkleRoot hashes) && m == (map fst $ filter snd txs)
-  where
-    (f,h)  = buildPartialMerkle txs
-    (r,m)  = fromRight $ extractMatches f h (length txs)
-    hashes = map fst txs
- 
--- testExtractMatches :: [(Hash256,Bool)] -> Property
--- testExtractMatches txs = not (null txs) ==>
---     m == (map fst $ filter snd txs)
---   where
---     t = buildPartialMerkle txs
---     m = extractMatches t
 

@@ -49,16 +49,8 @@ module Network.Haskoin.Script
 , decodeSig
 , decodeCanonicalSig
 
--- *Merkle Trees
-, calcTreeHeight
-, calcTreeWidth
-, buildMerkleRoot
-, buildPartialMerkle
-, extractMatches
-
 ) where
 
 import Network.Haskoin.Script.Parser
 import Network.Haskoin.Script.SigHash
-import Network.Haskoin.Script.Merkle
 
