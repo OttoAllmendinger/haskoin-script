@@ -132,7 +132,6 @@ getOp = instructions <$> get >>= \case
 popOp :: ProgramTransition ScriptOp
 popOp = get >>= \prog -> case instructions prog of
     [] -> throwError $ EvalError "popOp: empty script"
-    -- (i:is) -> put (is, s, a, h) >> return i
     (i:is) -> put prog { instructions = is } >> return i
 
 -- Stack Primitives
