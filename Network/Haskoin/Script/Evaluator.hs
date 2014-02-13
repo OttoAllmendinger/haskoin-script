@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
-module Network.Haskoin.Script.Evaluator (evalScript, evalScriptTest) where
+module Network.Haskoin.Script.Evaluator (
+    evalScript, runProgram, runStack, Program) where
 
 import Debug.Trace (trace)
 
@@ -85,6 +86,7 @@ opSize op = undefined -- TODO
 
 data EvalError =
     EvalError String
+    | ProgramError String Program
     | StackError ScriptOp
     | DisabledOp ScriptOp
 
@@ -94,6 +96,7 @@ instance Error EvalError where
 
 instance Show EvalError where
     show (EvalError m) = m
+    show (ProgramError m prog) = m ++ " program: " ++ (show prog)
     show (StackError op) = (show op) ++ ": Stack Error"
     show (DisabledOp op) = (show op) ++ ": disabled"
 
@@ -113,7 +116,8 @@ data Program = Program {
 }
 
 instance Show Program where
-    show p = show $ instructions p
+    show p = "script: " ++ (show $ instructions p) ++
+             " stack: " ++ (show $ stack p)
 
 type ProgramState = ErrorT EvalError Identity
 
@@ -122,16 +126,21 @@ type ProgramTransition a = StateT Program ProgramState a
 type SigCheck = PubKey -> [ScriptOp] -> Bool
 
 
+-- Error utils
+
+programError :: String -> ProgramTransition a
+programError s = get >>= throwError . ProgramError s
+
 -- Script Primitives
 
 getOp :: ProgramTransition ScriptOp
 getOp = instructions <$> get >>= \case
-    [] -> throwError $ EvalError "getOp: empty script"
+    [] -> programError "getOp: empty script"
     (i:_) -> return i
 
 popOp :: ProgramTransition ScriptOp
 popOp = get >>= \prog -> case instructions prog of
-    [] -> throwError $ EvalError "popOp: empty script"
+    [] -> programError "popOp: empty script"
     (i:is) -> put prog { instructions = is } >> return i
 
 -- Stack Primitives
@@ -164,9 +173,9 @@ pickStack remove n = do
     stack <- getStack
 
     when (n < 0) $
-        throwError $ EvalError "pickStack: n < 0"
+        programError "pickStack: n < 0"
     when (n > (length stack)) $
-        throwError $ EvalError "pickStack: n > size"
+        programError "pickStack: n > size"
 
     let v = stack !! n
     when remove $ putStack $ (take (n-1) stack) ++ (drop n stack)
@@ -245,7 +254,7 @@ pushAltStack op = modify $ \p -> p { altStack = op:(altStack p) }
 popAltStack :: ProgramTransition ScriptOp
 popAltStack = get >>= \p -> case altStack p of
     a:as -> put p { altStack = as } >> return a
-    []   -> throwError $ EvalError "popAltStack: empty stack"
+    []   -> programError "popAltStack: empty stack"
 
 
 
@@ -259,8 +268,8 @@ eval :: ScriptOp -> ProgramTransition ()
 
 evalIf :: Bool -> ProgramTransition ()
 evalIf cond = case cond of
-    True -> evalUntil OP_ELSE >> skipUntil OP_ENDIF
-    False -> skipUntil OP_ELSE >> evalUntil OP_ENDIF
+    True -> evalUntil OP_ELSE >> popOp >> skipUntil OP_ENDIF
+    False -> skipUntil OP_ELSE >> popOp >> evalUntil OP_ENDIF
     where
         doUntil stop evalOps = do
             op <- getOp
@@ -276,14 +285,14 @@ evalIf cond = case cond of
 eval OP_NOP     = return ()
 eval OP_IF      = popStack >>= evalIf . opToBool
 eval OP_NOTIF   = popStack >>= evalIf . not . opToBool
-eval OP_ELSE    = throwError $ EvalError "OP_ELSE outside OP_IF"
-eval OP_ENDIF   = throwError $ EvalError "OP_ENDIF outside OP_IF"
+eval OP_ELSE    = programError "OP_ELSE outside OP_IF"
+eval OP_ENDIF   = programError "OP_ENDIF outside OP_IF"
 
 eval OP_VERIFY = opToBool <$> popStack >>= \case
-    False -> throwError $ EvalError "OP_VERIFY failed"
+    False -> programError "OP_VERIFY failed"
     True  -> return ()
 
-eval OP_RETURN = throwError $ EvalError "explicit OP_RETURN"
+eval OP_RETURN = programError "explicit OP_RETURN"
 
 
 
@@ -373,7 +382,7 @@ eval OP_CHECKSIGVERIFY      = eval OP_CHECKSIG      >> eval OP_VERIFY
 eval OP_CHECKMULTISIGVERIFY = eval OP_CHECKMULTISIG >> eval OP_VERIFY
 
 eval op | isConstant op = pushStack op
-        | otherwise     = throwError $ EvalError $ "unknown op " ++ show op
+        | otherwise     = programError $ "unknown op " ++ show op
 
 --
 
@@ -405,19 +414,11 @@ evalScript script sigCheck = case runProgram (scriptOps script) sigCheck of
         (x:_)  -> opToBool x
         []     -> False
 
+runStack :: Program -> Stack
+runStack = stack
 
-evalScriptTest :: IO ()
-evalScriptTest = do
-    let initState = Program {
-        instructions = [OP_1, OP_0, OP_BOOLAND],
-        stack = [],
-        altStack = [],
-        hashOps = [],
-        sigCheck = rejectSignature
-    }
-
-    let result = runIdentity . runErrorT . runStateT evalAll $ initState
-
-    case result of
-        Left e -> putStrLn $ "error: " ++ show e
-        Right s -> putStrLn $ "success -- state: " ++ show s
+dumpStack :: [ScriptOp] -> IO ()
+dumpStack instructions =
+    case runProgram instructions rejectSignature of
+        Left e -> putStrLn $ "error " ++ show e
+        Right ((), prog) -> putStrLn $ show $ stack prog
