@@ -96,7 +96,7 @@ instance Error EvalError where
 
 instance Show EvalError where
     show (EvalError m) = m
-    show (ProgramError m prog) = m ++ " program: " ++ (show prog)
+    show (ProgramError m prog) = m ++ " - program: " ++ (show prog)
     show (StackError op) = (show op) ++ ": Stack Error"
     show (DisabledOp op) = (show op) ++ ": disabled"
 
@@ -241,7 +241,8 @@ bool2 = tStack2L opToBool boolToOp
 
 
 stackError :: ProgramTransition a
-stackError = getOp >>= throwError . StackError
+-- stackError = getOp >>= throwError . StackError
+stackError = programError "stack error"
 
 disabled :: ProgramTransition ()
 disabled = getOp >>= throwError . DisabledOp
@@ -268,8 +269,8 @@ eval :: ScriptOp -> ProgramTransition ()
 
 evalIf :: Bool -> ProgramTransition ()
 evalIf cond = case cond of
-    True -> evalUntil OP_ELSE >> popOp >> skipUntil OP_ENDIF
-    False -> skipUntil OP_ELSE >> popOp >> evalUntil OP_ENDIF
+    True -> popOp >> evalUntil OP_ELSE >> popOp >> skipUntil OP_ENDIF
+    False -> popOp >> skipUntil OP_ELSE >> popOp >> evalUntil OP_ENDIF
     where
         doUntil stop evalOps = do
             op <- getOp
