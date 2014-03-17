@@ -24,7 +24,7 @@ import Network.Haskoin.Protocol
 
 isConstant :: ScriptOp -> Bool
 isConstant op = case op of
-    (OP_PUSHDATA _) -> True
+    (OP_PUSHDATA _ _) -> True
     OP_0  -> True
     OP_1  -> True
     OP_2  -> True
