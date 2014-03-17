@@ -8,6 +8,7 @@ import Control.Applicative ((<$>))
 
 import Data.Bits (setBit, testBit)
 import Data.Binary (Word8)
+import Data.Maybe (fromJust)
 import qualified Data.ByteString as BS 
     ( singleton
     , length

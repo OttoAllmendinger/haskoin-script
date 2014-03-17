@@ -5,6 +5,7 @@ import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 
 import Data.Maybe (fromJust)
+import qualified Data.ByteString as BS (reverse)
 
 import Network.Haskoin.Script
 import Network.Haskoin.Protocol
@@ -22,31 +23,41 @@ tests =
     ]
 
 canonicalVectorsMap :: (String,Int) -> Test.Framework.Test
-canonicalVectorsMap (_,i) = testCase ("Canonical Sig " ++ (show i)) func
-    where func = testCanonicalSig $ canonicalVectors !! i
+canonicalVectorsMap (_,i) = 
+    testCase ("Canonical Sig " ++ (show i)) func
+  where 
+    func = testCanonicalSig $ canonicalVectors !! i
 
 notCanonicalVectorsMap :: (String,Int) -> Test.Framework.Test
-notCanonicalVectorsMap (_,i) = testCase ("Not canonical Sig " ++ (show i)) func
-    where func = testNotCanonicalSig $ notCanonicalVectors !! i
+notCanonicalVectorsMap (_,i) = 
+    testCase ("Not canonical Sig " ++ (show i)) func
+  where 
+    func = testNotCanonicalSig $ notCanonicalVectors !! i
 
 testCanonicalSig :: String -> Assertion
-testCanonicalSig str = assertBool "    > Canonical Sig" $
-    isRight $ decodeCanonicalSig bs
-    where bs = fromJust $ hexToBS str
+testCanonicalSig str = 
+    assertBool "    > Canonical Sig" $ isRight $ decodeCanonicalSig bs
+  where 
+    bs = fromJust $ hexToBS str
 
 testNotCanonicalSig :: String -> Assertion
-testNotCanonicalSig str = assertBool "    > Not canonical sig" $
-    isLeft $ decodeCanonicalSig bs
-    where bs = fromJust $ hexToBS str
+testNotCanonicalSig str = 
+    assertBool "    > Not canonical sig" $ isLeft $ decodeCanonicalSig bs
+  where 
+    bs = fromJust $ hexToBS str
 
 mapMulSigVector :: ((String,String),Int) -> Test.Framework.Test
-mapMulSigVector (v,i) = testCase name $ runMulSigVector v
-    where name = "MultiSignature vector " ++ (show i)
+mapMulSigVector (v,i) = 
+    testCase name $ runMulSigVector v
+  where 
+    name = "MultiSignature vector " ++ (show i)
 
 runMulSigVector :: (String,String) -> Assertion
-runMulSigVector (a,ops) = assertBool "    >  MultiSig Vector" $ 
-    a == (addrToBase58 $ scriptAddr $ fromRight $ decodeOutput s)
-    where s = Script $ runGet' getScriptOps $ fromJust $ hexToBS ops
+runMulSigVector (a,ops) = 
+    assertBool "    >  MultiSig Vector" $ a == b
+  where 
+    s = Script $ runGet' getScriptOps $ fromJust $ hexToBS ops
+    b = addrToBase58 $ scriptAddr $ fromRight $ decodeOutput s
 
 {- Canonical Signatures -}
 
