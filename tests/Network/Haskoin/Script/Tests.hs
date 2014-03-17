@@ -26,6 +26,7 @@ import Network.Haskoin.Protocol
 import Network.Haskoin.Util
 
 tests :: [Test]
+{-
 tests =
     [ testGroup "Script Parser"
         [ testProperty "decode . encode OP_1 .. OP_16" testScriptOpInt
@@ -44,7 +45,19 @@ tests =
         , testProperty "Testing txSigHash with SigSingle" testSigHashOne
         ]
     , testGroup "Script Evaluator"
-        [ testProperty "evalScript " testScriptEvalFalse
+        [ testProperty "evalScript " (
+            testStackEqual [OP_1, OP_0, OP_BOOLAND] [OP_0])
+        ]
+    ]
+-}
+tests = [
+    testGroup "Script Evaluator"
+        [ testProperty "OP_DUP"
+            (testStackEqual [OP_3, OP_DUP] [OP_3, OP_3])
+        , testProperty "OP_IF then"
+            (testStackEqual [OP_1, OP_IF, OP_2, OP_ELSE, OP_3, OP_ENDIF] [OP_2])
+        , testProperty "OP_IF else"
+            (testStackEqual [OP_0, OP_IF, OP_2, OP_ELSE, OP_3, OP_ENDIF] [OP_3])
         ]
     ]
 
@@ -126,3 +139,9 @@ rejectSignature _ _ = False
 
 testScriptEvalFalse :: Script -> Bool
 testScriptEvalFalse sc = not $ evalScript sc rejectSignature
+
+testStackEqual :: [ScriptOp] -> [ScriptOp] -> Bool
+testStackEqual instructions result =
+    case runProgram instructions rejectSignature of
+        Left e -> False
+        Right ((), prog) -> result == runStack prog
